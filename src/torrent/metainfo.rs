@@ -1,3 +1,11 @@
+//! Torrent metadata parsing.
+//!
+//! Contains the structures and deserialization logic
+//! for parsing `.torrent` files into usable Rust types.
+use std::fs;
+
+use anyhow::Result;
+
 use serde_derive::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct MetaInfo {
@@ -27,4 +35,16 @@ pub struct FilesDict {
     length: u64,
     md5sum: Option<String>,
     path: Vec<String>,
+}
+
+impl MetaInfo {
+    pub fn from_file(file_path: &str) -> Result<Self, anyhow::Error> {
+        let bytes: Vec<u8> = fs::read(file_path).unwrap();
+
+        Ok(serde_bencode::from_bytes(&bytes)?)
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, anyhow::Error> {
+        Ok(serde_bencode::from_bytes(bytes)?)
+    }
 }
