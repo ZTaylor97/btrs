@@ -17,12 +17,14 @@ pub mod info;
 /// Deserialize from .torrent files.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct MetaInfo {
-    info: InfoEnum,
+    pub info: InfoEnum,
     pub announce: String,
     #[serde(rename = "announce-list")]
-    announce_list: Option<Vec<Vec<String>>>,
+    pub announce_list: Option<Vec<Vec<String>>>,
+    #[serde(rename = "creation date")]
     creation_date: Option<u64>,
     comment: Option<String>,
+    #[serde(rename = "created by")]
     created_by: Option<String>,
     encoding: Option<String>,
 }
@@ -71,19 +73,17 @@ mod metainfo_tests {
             encoding: Some("UTF-8".to_string()),
             info: InfoEnum::MultiFile(InfoMultiFile {
                 name: "test_folder".to_string(),
-                length: None,
-                md5sum: None,
                 piece_length: 32768,
                 pieces: ByteBuf::from(vec![0u8; 40]), // two pieces
                 files: vec![
                     FilesDict {
                         length: 1000,
-                        md5sum: None,
+                        md5: None,
                         path: vec!["subfolder".to_string(), "file1.txt".to_string()],
                     },
                     FilesDict {
                         length: 2000,
-                        md5sum: None,
+                        md5: None,
                         path: vec!["file2.txt".to_string()],
                     },
                 ],

@@ -1,6 +1,7 @@
 use torrent::Torrent;
 
 pub mod torrent;
+pub mod tui;
 
 #[tokio::main]
 async fn main() {

@@ -38,7 +38,7 @@ impl TrackerRequest {
             downloaded: 0,
             left: 0,
             event: Some(TrackerEvent::Started),
-            compact: Some(0),
+            compact: None,
             no_peer_id: None,
             ip: None,
             numwant: 50,
@@ -89,14 +89,14 @@ pub struct TrackerResponse {
     failure_reason: Option<String>,
     #[serde(rename = "warning message")]
     warning_message: Option<String>,
-    interval: u64,
+    interval: Option<u64>,
     #[serde(rename = "min interval")]
     min_interval: Option<u64>,
     #[serde(rename = "tracker id")]
     tracker_id: Option<String>,
-    complete: u64,
-    incomplete: u64,
-    peers: PeersEnum,
+    complete: Option<u64>,
+    incomplete: Option<u64>,
+    peers: Option<PeersEnum>,
 }
 
 #[derive(Serialize, PartialEq, Eq, Debug)]

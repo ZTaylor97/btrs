@@ -12,8 +12,6 @@ use urlencoding::encode_binary;
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct InfoMultiFile {
     pub(super) name: String,
-    pub(super) length: Option<u64>,
-    pub(super) md5sum: Option<String>,
     #[serde(rename = "piece length")]
     pub(super) piece_length: u64,
     pub(super) pieces: ByteBuf,
@@ -25,7 +23,7 @@ pub struct InfoMultiFile {
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct FilesDict {
     pub(super) length: u64,
-    pub(super) md5sum: Option<String>,
+    pub(super) md5: Option<String>,
     pub(super) path: Vec<String>,
 }
 
@@ -35,7 +33,7 @@ pub struct FilesDict {
 pub struct InfoSingleFile {
     pub(super) name: String,
     pub(super) length: u64,
-    pub(super) md5sum: Option<String>,
+    pub(super) md5: Option<String>,
     #[serde(rename = "piece length")]
     pub(super) piece_length: u64,
     pub(super) pieces: ByteBuf,
