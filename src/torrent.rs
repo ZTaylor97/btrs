@@ -1,5 +1,8 @@
+use std::net::{Ipv4Addr, Ipv6Addr};
+
 use anyhow::Error;
 use rand::{Rng, distr::Alphanumeric};
+use serde_bencode::value::Value;
 use urlencoding::encode_binary;
 
 use metainfo::MetaInfo;
@@ -57,7 +60,31 @@ impl Torrent {
             .await
             .unwrap();
 
-            println!("result: {result:?}");
+            if let Ok(Value::Dict(mut map)) = serde_bencode::from_bytes::<Value>(&result[..]) {
+                if let Some(peers) = map.remove(&b"peers".to_vec()) {
+                    match peers {
+                        Value::Bytes(compact_peers) => {
+                            println!("Compact peers: {} bytes", compact_peers.len());
+
+                            for chunk in compact_peers.chunks_exact(6) {
+                                let ip = Ipv4Addr::new(chunk[0], chunk[1], chunk[2], chunk[3]);
+                                let port = u16::from_be_bytes([chunk[4], chunk[5]]);
+                                println!("Peer: {}:{}", ip, port);
+                            }
+                            // parse as 6-byte chunks
+                        }
+                        Value::List(peer_list) => {
+                            println!("Non-compact peer list with {} entries", peer_list.len());
+                            // each entry should be a Value::Dict
+                        }
+                        _ => {
+                            println!("Unexpected format for peers field: {:?}", peers);
+                        }
+                    }
+                } else {
+                    println!("No peers field in response.");
+                }
+            }
         }
     }
 }
