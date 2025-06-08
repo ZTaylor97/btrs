@@ -1,3 +1,5 @@
+//! All download logic is stored here.
+
 use crate::torrent::{
     download::tracker::{TrackerRequest, TrackerResponse},
     metainfo::MetaInfo,

@@ -1,3 +1,6 @@
+//! Module for constructing and parsing requests + responses
+//! to trackers.
+
 use std::fmt;
 use std::net::IpAddr;
 
@@ -35,7 +38,7 @@ impl TrackerRequest {
             downloaded: 0,
             left: 0,
             event: Some(TrackerEvent::Started),
-            compact: Some(0),
+            compact: Some(1),
             no_peer_id: None,
             ip: None,
             numwant: 50,
@@ -110,7 +113,9 @@ pub struct PeersDict {
     port: u64,
 }
 
-// 👇 custom deserialization logic
+/// Implement custom serde Deserialize trait on the PeersEnum
+/// to handle automatic switching between compact and dict formats
+/// for peers.
 impl<'de> Deserialize<'de> for PeersEnum {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where

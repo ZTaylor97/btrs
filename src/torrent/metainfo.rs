@@ -4,7 +4,6 @@
 //! for parsing `.torrent` files into usable Rust types.
 use std::fs;
 
-use serde_bytes::ByteBuf;
 use sha1::{Digest, Sha1};
 
 use anyhow::Result;
@@ -12,12 +11,16 @@ use urlencoding::encode_binary;
 
 use serde_derive::{Deserialize, Serialize};
 
+use info::InfoEnum;
+
+pub mod info;
+
 /// Metadata for a torrent for clients to configure sessions.
 ///
 /// Deserialize from .torrent files.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct MetaInfo {
-    info: Info,
+    info: InfoEnum,
     pub announce: String,
     #[serde(rename = "announce-list")]
     announce_list: Option<Vec<Vec<String>>>,
@@ -25,24 +28,6 @@ pub struct MetaInfo {
     comment: Option<String>,
     created_by: Option<String>,
     encoding: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub struct Info {
-    name: String,
-    length: Option<u64>,
-    md5sum: Option<String>,
-    #[serde(rename = "piece length")]
-    piece_length: u64,
-    pieces: ByteBuf,
-    files: Vec<FilesDict>,
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub struct FilesDict {
-    length: u64,
-    md5sum: Option<String>,
-    path: Vec<String>,
 }
 
 impl MetaInfo {
@@ -64,22 +49,20 @@ impl MetaInfo {
         Ok(serde_bencode::from_bytes(bytes)?)
     }
 
+    /// Generates a hash of the [`Info`](InfoEnum) dictionary.
+    ///
+    /// Returns a [`String`]
     pub fn get_info_hash(&self) -> String {
-        let mut hasher = Sha1::new();
+        self.info.get_hash()
 
-        let bytes = serde_bencode::to_bytes(&self.info).unwrap();
-        hasher.update(&bytes);
-
-        let result = hasher.finalize();
-
-        let slice = result.as_slice();
-
-        encode_binary(slice).into_owned()
     }
 }
 
 #[cfg(test)]
 mod metainfo_tests {
+    use serde_bytes::ByteBuf;
+
+    use super::info::*;
     use super::*;
 
     fn mock_metainfo() -> MetaInfo {
@@ -90,7 +73,7 @@ mod metainfo_tests {
             comment: Some("Multi file test".to_string()),
             created_by: Some("btrs-test".to_string()),
             encoding: Some("UTF-8".to_string()),
-            info: Info {
+            info: InfoEnum::MultiFile(InfoMultiFile {
                 name: "test_folder".to_string(),
                 length: None,
                 md5sum: None,
@@ -108,7 +91,7 @@ mod metainfo_tests {
                         path: vec!["file2.txt".to_string()],
                     },
                 ],
-            },
+            }),
         }
     }
 
@@ -116,7 +99,7 @@ mod metainfo_tests {
     fn it_works() {
         let test1 = "d5:filesld6:lengthi1000e4:pathl9:subfolder9:file1.txteed6:lengthi2000e4:pathl9:file2.txteee4:name11:test_folder12:piece lengthi32768e6:pieces40:\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0e";
 
-        let info: Info = serde_bencode::from_str(test1).unwrap();
+        let info: InfoEnum = serde_bencode::from_str(test1).unwrap();
 
         let test_info = mock_metainfo();
         assert_eq!(info, test_info.info);

@@ -1,3 +1,7 @@
+//! Contains all state and structures for the
+//! torrent client, including loading METAINFO and
+//! making requests to trackers.
+
 use std::net::Ipv4Addr;
 
 use anyhow::Error;
@@ -71,7 +75,6 @@ impl Torrent {
                         }
                         Value::List(peer_list) => {
                             println!("Non-compact peer list with {} entries", peer_list.len());
-                            // each entry should be a Value::Dict
                         }
                         _ => {
                             println!("Unexpected format for peers field: {:?}", peers);
