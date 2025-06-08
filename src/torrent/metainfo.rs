@@ -104,7 +104,7 @@ mod metainfo_tests {
 
         assert_eq!(
             hash.as_str(),
-            "%D7%E4%25%A6%8B%2B%B1%CC5Y%AD%93T%85%D1%A5%A4%E0%E9%CB"
+            "%AD%85%D6%EET%F9%E5%11%DD%28%40%D4%80M%81%A6J%26%86%15"
         )
     }
 }

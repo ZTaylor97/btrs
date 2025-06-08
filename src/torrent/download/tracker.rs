@@ -38,7 +38,7 @@ impl TrackerRequest {
             downloaded: 0,
             left: 0,
             event: Some(TrackerEvent::Started),
-            compact: Some(1),
+            compact: Some(0),
             no_peer_id: None,
             ip: None,
             numwant: 50,
