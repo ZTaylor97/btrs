@@ -7,6 +7,10 @@ use crate::torrent::{
 
 pub mod tracker;
 
+/// Test function which gets a list of peers for
+/// the tracker found in [`torrent`](`MetaInfo`)
+///
+/// Returns the response bytes or a [`reqwest::Error`]
 pub async fn download(
     torrent: &MetaInfo,
     request: &TrackerRequest,

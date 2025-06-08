@@ -21,7 +21,7 @@ pub struct InfoMultiFile {
 }
 
 /// Fields to deserialize the files list into for
-/// a multi file torrent.
+/// a multi file torrent in an [`InfoMultiFile`].
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct FilesDict {
     pub(super) length: u64,
@@ -50,6 +50,11 @@ pub enum InfoEnum {
 }
 
 impl InfoEnum {
+    /// Create a hash of an [`Info`](`InfoEnum`) according to
+    /// bittorrent specification.
+    ///
+    /// Returns a urlencoded [`String`] of SHA1 encoded, bencode formatted
+    /// info.
     pub fn get_hash(&self) -> String {
         let mut hasher = Sha1::new();
 

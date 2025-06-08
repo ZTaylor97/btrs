@@ -4,10 +4,7 @@
 //! for parsing `.torrent` files into usable Rust types.
 use std::fs;
 
-use sha1::{Digest, Sha1};
-
 use anyhow::Result;
-use urlencoding::encode_binary;
 
 use serde_derive::{Deserialize, Serialize};
 
@@ -41,7 +38,7 @@ impl MetaInfo {
         Ok(serde_bencode::from_bytes(&bytes)?)
     }
 
-    /// Deserializes a .torrent file at `file_path` into a [MetaInfo] struct.
+    /// Deserializes a metainfo dictionary bytes into a [MetaInfo] struct.
     ///
     /// Returns an [`anyhow::Error`] if file is not found or .torrent file
     /// is invalid.
@@ -54,7 +51,6 @@ impl MetaInfo {
     /// Returns a [`String`]
     pub fn get_info_hash(&self) -> String {
         self.info.get_hash()
-
     }
 }
 
