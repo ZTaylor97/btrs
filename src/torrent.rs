@@ -2,7 +2,9 @@ use anyhow::Error;
 use rand::{Rng, distr::Alphanumeric};
 use urlencoding::encode_binary;
 
-use crate::torrent::metainfo::MetaInfo;
+use metainfo::MetaInfo;
+
+use download::tracker::TrackerRequest;
 
 mod download;
 mod metainfo;
@@ -44,5 +46,18 @@ impl Torrent {
         self.torrents.push(metainfo);
 
         Ok(())
+    }
+
+    pub async fn download_torrents(&self) {
+        for torrent in &self.torrents {
+            let result = download::download(
+                &torrent,
+                &TrackerRequest::new(&torrent.get_info_hash(), &self.peer_id),
+            )
+            .await
+            .unwrap();
+
+            println!("result: {result:?}");
+        }
     }
 }

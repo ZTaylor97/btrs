@@ -18,7 +18,7 @@ use serde_derive::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct MetaInfo {
     info: Info,
-    announce: String,
+    pub announce: String,
     #[serde(rename = "announce-list")]
     announce_list: Option<Vec<Vec<String>>>,
     creation_date: Option<u64>,
