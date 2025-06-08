@@ -1,4 +1,4 @@
-use std::net::{Ipv4Addr, Ipv6Addr};
+use std::net::Ipv4Addr;
 
 use anyhow::Error;
 use rand::{Rng, distr::Alphanumeric};
@@ -34,8 +34,6 @@ impl Torrent {
 
         let peer_id = encode_binary(&peer_id_bytes).into_owned();
 
-        println!("{peer_id}");
-
         Torrent {
             torrents: vec![],
             peer_id,
@@ -45,7 +43,6 @@ impl Torrent {
     pub fn add_torrent(&mut self, file_path: &str) -> Result<(), Error> {
         let metainfo = MetaInfo::from_file(file_path)?;
 
-        println!("{:?}", metainfo.get_info_hash());
         self.torrents.push(metainfo);
 
         Ok(())
@@ -71,7 +68,6 @@ impl Torrent {
                                 let port = u16::from_be_bytes([chunk[4], chunk[5]]);
                                 println!("Peer: {}:{}", ip, port);
                             }
-                            // parse as 6-byte chunks
                         }
                         Value::List(peer_list) => {
                             println!("Non-compact peer list with {} entries", peer_list.len());

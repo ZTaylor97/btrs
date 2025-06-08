@@ -1,4 +1,7 @@
-use crate::torrent::{download::tracker::TrackerRequest, metainfo::MetaInfo};
+use crate::torrent::{
+    download::tracker::{TrackerRequest, TrackerResponse},
+    metainfo::MetaInfo,
+};
 
 pub mod tracker;
 
@@ -10,6 +13,12 @@ pub async fn download(
     let client = reqwest::Client::new();
     let res = client.get(url).send().await?;
     let bytes = res.bytes().await?;
+
+    println!("{:?}", bytes.to_vec());
+
+    let test: TrackerResponse = serde_bencode::from_bytes(&bytes.to_vec()).unwrap();
+
+    println!("{test:?}");
 
     Ok(bytes.to_vec())
 }
