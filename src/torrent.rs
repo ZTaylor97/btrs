@@ -2,11 +2,10 @@
 //! torrent client, including loading METAINFO and
 //! making requests to trackers.
 
-use std::{fs, net::Ipv4Addr, path::Path};
+use std::{fs, net::Ipv4Addr};
 
 use anyhow::{Context, Error};
 use rand::{Rng, distr::Alphanumeric};
-use serde::de;
 use serde_bencode::value::Value;
 use sha1::{Digest, Sha1};
 use urlencoding::encode_binary;

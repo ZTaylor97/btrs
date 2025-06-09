@@ -4,8 +4,6 @@ use serde::{Deserialize, Deserializer, de};
 use serde_bencode::value::Value;
 use serde_bytes::ByteBuf;
 use serde_derive::{Deserialize, Serialize};
-use sha1::{Digest, Sha1};
-use urlencoding::encode_binary;
 
 /// InfoMultiFile format contains the files key.
 /// Present when torrent consists of multiple files.
@@ -45,26 +43,6 @@ pub struct InfoSingleFile {
 pub enum InfoEnum {
     MultiFile(InfoMultiFile),
     SingleFile(InfoSingleFile),
-}
-
-impl InfoEnum {
-    /// Create a hash of an [`Info`](`InfoEnum`) according to
-    /// bittorrent specification.
-    ///
-    /// Returns a urlencoded [`String`] of SHA1 encoded, bencode formatted
-    /// info.
-    pub fn get_hash(&self) -> String {
-        let mut hasher = Sha1::new();
-
-        let bytes = serde_bencode::to_bytes(&self).unwrap();
-        hasher.update(&bytes);
-
-        let result = hasher.finalize();
-
-        let slice = result.as_slice();
-
-        encode_binary(slice).into_owned()
-    }
 }
 
 impl<'de> Deserialize<'de> for InfoEnum {
