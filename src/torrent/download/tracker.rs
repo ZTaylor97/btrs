@@ -5,11 +5,13 @@ use std::fmt;
 use std::net::IpAddr;
 
 use serde::{Deserialize, Deserializer};
+use serde_bytes::ByteBuf;
 use serde_derive::{Deserialize, Serialize};
 
 use serde::de;
 use serde::de::Visitor;
 
+/// Struct for making a request to a Tracker
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct TrackerRequest {
     #[serde(skip_serializing)]
@@ -55,7 +57,6 @@ impl TrackerRequest {
         encoded
     }
 }
-
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub enum TrackerEvent {
     #[serde(rename = "started")]
@@ -66,6 +67,7 @@ pub enum TrackerEvent {
     Completed,
 }
 
+/// Struct for deserializing the response from a tracker.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct TrackerResponse {
     #[serde(rename = "failure reason")]
@@ -91,7 +93,7 @@ pub enum PeersEnum {
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct PeersDict {
     #[serde(rename = "peer id")]
-    peer_id: String,
+    peer_id: ByteBuf,
     ip: String,
     port: u64,
 }
