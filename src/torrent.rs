@@ -2,11 +2,12 @@
 //! torrent client, including loading METAINFO and
 //! making requests to trackers.
 
-use std::net::Ipv4Addr;
+use std::{fs, net::Ipv4Addr};
 
-use anyhow::Error;
+use anyhow::{Context, Error};
 use rand::{Rng, distr::Alphanumeric};
 use serde_bencode::value::Value;
+use sha1::{Digest, Sha1};
 use urlencoding::encode_binary;
 
 use metainfo::MetaInfo;
@@ -16,12 +17,17 @@ use download::tracker::TrackerRequest;
 mod download;
 mod metainfo;
 
-pub struct Torrent {
-    torrents: Vec<metainfo::MetaInfo>,
+pub struct Torrents {
+    torrents: Vec<Torrent>,
     peer_id: String,
 }
 
-impl Torrent {
+pub struct Torrent {
+    metainfo: MetaInfo,
+    info_hash: String,
+}
+
+impl Torrents {
     pub fn new() -> Self {
         let prefix = b"-RS0001-";
         let mut peer_id_bytes = [0u8; 20];
@@ -38,25 +44,61 @@ impl Torrent {
 
         let peer_id = encode_binary(&peer_id_bytes).into_owned();
 
-        Torrent {
+        Torrents {
             torrents: vec![],
             peer_id,
         }
     }
 
+    /// Adds a torrent to the client from a .torrent `file_path`
     pub fn add_torrent(&mut self, file_path: &str) -> Result<(), Error> {
-        let metainfo = MetaInfo::from_file(file_path)?;
+        let bytes: Vec<u8> = fs::read(file_path).expect("{file_path} not found.");
+        let metainfo = MetaInfo::from_bytes(&bytes)?;
 
-        self.torrents.push(metainfo);
+        let info_hash = Self::info_hash(&bytes)?;
+
+        self.torrents.push(Torrent {
+            metainfo,
+            info_hash,
+        });
 
         Ok(())
     }
 
+    /// Calculates an `info_hash` from the info dictionary bytes found in
+    /// the .torrent file.
+    ///
+    /// Returns an [`Error`](`anyhow::Error`) if:
+    ///     - bytes are not valid bencode,
+    ///     - info key is missing from bencode,
+    ///     - an error happens converting back to bytes
+    pub fn info_hash(bytes: &[u8]) -> Result<String, Error> {
+        let value: Value = serde_bencode::from_bytes(&bytes)
+            .context("Failed to decode .torrent file as bencode")?;
+
+        let info_value = match value {
+            Value::Dict(ref dict) => dict
+                .get(&b"info".to_vec())
+                .context("Missing 'info' key in .torrent file")?,
+            _ => anyhow::bail!("Top-level bencode structure is not a dictionary"),
+        };
+
+        let info_bytes = serde_bencode::to_bytes(info_value)
+            .context("Failed to re-encode 'info' value to bencode")?;
+
+        let mut hasher = Sha1::new();
+        hasher.update(&info_bytes);
+        let hash = hasher.finalize();
+
+        Ok(encode_binary(&hash).into_owned())
+    }
+
+    /// Basic WIP function to make a request to a tracker.
     pub async fn download_torrents(&self) {
         for torrent in &self.torrents {
             let result = download::download(
-                &torrent,
-                &TrackerRequest::new(&torrent.get_info_hash(), &self.peer_id),
+                &torrent.metainfo,
+                &TrackerRequest::new(&torrent.info_hash, &self.peer_id),
             )
             .await
             .unwrap();

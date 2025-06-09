@@ -2,13 +2,9 @@
 //!
 //! Contains the structures and deserialization logic
 //! for parsing `.torrent` files into usable Rust types.
-use std::fs;
-
 use anyhow::Result;
-
-use serde_derive::{Deserialize, Serialize};
-
 use info::InfoEnum;
+use serde_derive::{Deserialize, Serialize};
 
 pub mod info;
 
@@ -17,40 +13,25 @@ pub mod info;
 /// Deserialize from .torrent files.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct MetaInfo {
-    info: InfoEnum,
+    pub info: InfoEnum,
     pub announce: String,
     #[serde(rename = "announce-list")]
-    announce_list: Option<Vec<Vec<String>>>,
+    pub announce_list: Option<Vec<Vec<String>>>,
+    #[serde(rename = "creation date")]
     creation_date: Option<u64>,
     comment: Option<String>,
+    #[serde(rename = "created by")]
     created_by: Option<String>,
     encoding: Option<String>,
 }
 
 impl MetaInfo {
-    /// Deserializes a .torrent file at `file_path` into a [MetaInfo] struct.
-    ///
-    /// Returns an [`anyhow::Error`] if file is not found or .torrent file
-    /// is invalid.
-    pub fn from_file(file_path: &str) -> Result<Self, anyhow::Error> {
-        let bytes: Vec<u8> = fs::read(file_path).expect("{file_path} not found.");
-
-        Ok(serde_bencode::from_bytes(&bytes)?)
-    }
-
     /// Deserializes a metainfo dictionary bytes into a [MetaInfo] struct.
     ///
     /// Returns an [`anyhow::Error`] if file is not found or .torrent file
     /// is invalid.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, anyhow::Error> {
         Ok(serde_bencode::from_bytes(bytes)?)
-    }
-
-    /// Generates a hash of the [`Info`](InfoEnum) dictionary.
-    ///
-    /// Returns a [`String`]
-    pub fn get_info_hash(&self) -> String {
-        self.info.get_hash()
     }
 }
 
@@ -71,19 +52,17 @@ mod metainfo_tests {
             encoding: Some("UTF-8".to_string()),
             info: InfoEnum::MultiFile(InfoMultiFile {
                 name: "test_folder".to_string(),
-                length: None,
-                md5sum: None,
                 piece_length: 32768,
                 pieces: ByteBuf::from(vec![0u8; 40]), // two pieces
                 files: vec![
                     FilesDict {
                         length: 1000,
-                        md5sum: None,
+                        md5: None,
                         path: vec!["subfolder".to_string(), "file1.txt".to_string()],
                     },
                     FilesDict {
                         length: 2000,
-                        md5sum: None,
+                        md5: None,
                         path: vec!["file2.txt".to_string()],
                     },
                 ],
@@ -99,12 +78,5 @@ mod metainfo_tests {
 
         let test_info = mock_metainfo();
         assert_eq!(info, test_info.info);
-
-        let hash = test_info.get_info_hash();
-
-        assert_eq!(
-            hash.as_str(),
-            "%AD%85%D6%EET%F9%E5%11%DD%28%40%D4%80M%81%A6J%26%86%15"
-        )
     }
 }
