@@ -2,13 +2,9 @@
 //!
 //! Contains the structures and deserialization logic
 //! for parsing `.torrent` files into usable Rust types.
-use std::fs;
-
 use anyhow::Result;
-
-use serde_derive::{Deserialize, Serialize};
-
 use info::InfoEnum;
+use serde_derive::{Deserialize, Serialize};
 
 pub mod info;
 
@@ -30,29 +26,12 @@ pub struct MetaInfo {
 }
 
 impl MetaInfo {
-    /// Deserializes a .torrent file at `file_path` into a [MetaInfo] struct.
-    ///
-    /// Returns an [`anyhow::Error`] if file is not found or .torrent file
-    /// is invalid.
-    pub fn from_file(file_path: &str) -> Result<Self, anyhow::Error> {
-        let bytes: Vec<u8> = fs::read(file_path).expect("{file_path} not found.");
-
-        Ok(serde_bencode::from_bytes(&bytes)?)
-    }
-
     /// Deserializes a metainfo dictionary bytes into a [MetaInfo] struct.
     ///
     /// Returns an [`anyhow::Error`] if file is not found or .torrent file
     /// is invalid.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, anyhow::Error> {
         Ok(serde_bencode::from_bytes(bytes)?)
-    }
-
-    /// Generates a hash of the [`Info`](InfoEnum) dictionary.
-    ///
-    /// Returns a [`String`]
-    pub fn get_info_hash(&self) -> String {
-        self.info.get_hash()
     }
 }
 
@@ -99,12 +78,5 @@ mod metainfo_tests {
 
         let test_info = mock_metainfo();
         assert_eq!(info, test_info.info);
-
-        let hash = test_info.get_info_hash();
-
-        assert_eq!(
-            hash.as_str(),
-            "%AD%85%D6%EET%F9%E5%11%DD%28%40%D4%80M%81%A6J%26%86%15"
-        )
     }
 }

@@ -66,23 +66,6 @@ pub enum TrackerEvent {
     Completed,
 }
 
-#[cfg(test)]
-mod tracker_tests {
-    use super::*;
-
-    #[test]
-    fn test_to_query_string() {
-        let request = TrackerRequest::new(
-            "%DA%BFr%01%9D%EFM0%AF%00%F4%BFM%DF%8Ais%0C%02%B4",
-            "-RS0001-kONXltkhXIr5",
-        );
-
-        let expected_result = "peer_id=-RS0001-kONXltkhXIr5&port=6882&uploaded=0&downloaded=0&left=0&compact=0&numwant=50&event=started&info_hash=%DA%BFr%01%9D%EFM0%AF%00%F4%BFM%DF%8Ais%0C%02%B4";
-
-        assert_eq!(request.to_query_string(), expected_result);
-    }
-}
-
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct TrackerResponse {
     #[serde(rename = "failure reason")]
@@ -148,5 +131,22 @@ impl<'de> Deserialize<'de> for PeersEnum {
         }
 
         deserializer.deserialize_any(PeersEnumVisitor)
+    }
+}
+
+#[cfg(test)]
+mod tracker_tests {
+    use super::*;
+
+    #[test]
+    fn test_to_query_string() {
+        let request = TrackerRequest::new(
+            "%DA%BFr%01%9D%EFM0%AF%00%F4%BFM%DF%8Ais%0C%02%B4",
+            "-RS0001-kONXltkhXIr5",
+        );
+
+        let expected_result = "peer_id=-RS0001-kONXltkhXIr5&port=6882&uploaded=0&downloaded=0&left=0&numwant=50&event=started&info_hash=%DA%BFr%01%9D%EFM0%AF%00%F4%BFM%DF%8Ais%0C%02%B4";
+
+        assert_eq!(request.to_query_string(), expected_result);
     }
 }
