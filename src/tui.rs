@@ -4,16 +4,18 @@ use ratatui::{
     style::{Color, Style},
     symbols,
     text::{Line, Text},
-    widgets::{Block, Borders, HighlightSpacing, List, ListItem, Paragraph},
+    widgets::{Block, Borders, HighlightSpacing, List, ListItem, ListState, Paragraph},
 };
 
-use crate::{
-    app::{App, ui_models::TorrentItem},
-    torrent::Torrent,
-};
+use crate::app::{App, ui_models::TorrentItem};
+
+struct TorrentList {
+    list_state: ListState,
+    torrent_items: Vec<TorrentItem>,
+}
 
 pub fn draw(frame: &mut Frame, app: &App) {
-    let chunks = Layout::default()
+    let vertical_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3),
@@ -21,6 +23,11 @@ pub fn draw(frame: &mut Frame, app: &App) {
             Constraint::Length(3),
         ])
         .split(frame.area());
+
+    let middle_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(40), Constraint::Percentage((60))])
+        .split(vertical_chunks[1]);
 
     let title_block = Block::default()
         .borders(Borders::ALL)
@@ -30,7 +37,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
         .centered()
         .block(title_block);
 
-    frame.render_widget(title, chunks[0]);
+    frame.render_widget(title, vertical_chunks[0]);
 
     let torrent_items: Vec<ListItem> = app
         .torrents
@@ -46,10 +53,16 @@ pub fn draw(frame: &mut Frame, app: &App) {
 
     let list = List::new(torrent_items)
         .block(list_block)
-        .highlight_symbol(">")
+        .highlight_symbol(" > ")
+        .highlight_style(Style::default().fg(Color::Blue))
         .highlight_spacing(HighlightSpacing::Always);
 
-    frame.render_widget(list, chunks[1]);
+    let mut list_state = ListState::default();
+
+    list_state.select_first();
+
+    frame.render_stateful_widget(list, middle_chunks[0], &mut list_state);
+    frame.render_widget(Block::default().borders(Borders::ALL), middle_chunks[1]);
 }
 
 impl From<&TorrentItem> for ListItem<'_> {
