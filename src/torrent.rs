@@ -12,7 +12,7 @@ use urlencoding::encode_binary;
 use metainfo::MetaInfo;
 
 mod download;
-mod metainfo;
+pub mod metainfo;
 
 pub struct Torrent {
     metainfo: MetaInfo,
@@ -23,7 +23,7 @@ impl Torrent {
     /// Adds a torrent to the client from bytes loaded from a .torrent file.
     pub fn load(bytes: &[u8]) -> Result<Self, Error> {
         let metainfo = MetaInfo::from_bytes(&bytes)?;
-        let info_hash = Self::info_hash(&bytes)?;
+        let info_hash = Self::calculate_info_hash(&bytes)?;
 
         Ok(Self {
             metainfo,
@@ -38,7 +38,7 @@ impl Torrent {
     ///     - bytes are not valid bencode,
     ///     - info key is missing from bencode,
     ///     - an error happens converting back to bytes
-    fn info_hash(bytes: &[u8]) -> Result<String, Error> {
+    fn calculate_info_hash(bytes: &[u8]) -> Result<String, Error> {
         let value: Value = serde_bencode::from_bytes(&bytes)
             .context("Failed to decode .torrent file as bencode")?;
 
@@ -91,5 +91,12 @@ impl Torrent {
         }
 
         Ok(())
+    }
+
+    pub fn get_metainfo(&self) -> &MetaInfo {
+        &self.metainfo
+    }
+    pub fn get_info_hash(&self) -> &str {
+        &self.info_hash
     }
 }

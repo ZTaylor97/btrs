@@ -6,13 +6,15 @@ use urlencoding::encode_binary;
 
 use crate::torrent::Torrent;
 
+pub mod ui_models;
+
 pub enum CurrentScreen {
     Main,
 }
 
 pub struct App {
-    torrents: Vec<Torrent>,
-    peer_id: String,
+    pub torrents: Vec<Torrent>,
+    pub peer_id: String,
 }
 
 impl App {

@@ -9,7 +9,7 @@ use serde_derive::{Deserialize, Serialize};
 /// Present when torrent consists of multiple files.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct InfoMultiFile {
-    pub(super) name: String,
+    pub name: String,
     #[serde(rename = "piece length")]
     pub(super) piece_length: u64,
     pub(super) pieces: ByteBuf,
@@ -29,7 +29,7 @@ pub struct FilesDict {
 /// Present when torrent is only one file.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct InfoSingleFile {
-    pub(super) name: String,
+    pub name: String,
     pub(super) length: u64,
     pub(super) md5: Option<String>,
     #[serde(rename = "piece length")]

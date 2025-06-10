@@ -5,57 +5,40 @@ pub mod tui;
 use anyhow::Error;
 use app::App;
 
-use ratatui::Terminal;
-use ratatui::crossterm::event::{
-    self, DisableMouseCapture, EnableMouseCapture, Event, KeyEventKind,
+use ratatui::{
+    Terminal,
+    crossterm::event::{self, Event, KeyEventKind},
+    prelude::Backend,
 };
-use ratatui::crossterm::execute;
-use ratatui::crossterm::terminal::{
-    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
-};
-use ratatui::prelude::{Backend, CrosstermBackend};
-use std::io;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let mut app = App::new();
 
-    enable_raw_mode()?;
-    let mut stderr = io::stderr();
-    execute!(stderr, EnterAlternateScreen, EnableMouseCapture)?;
+    let mut terminal = ratatui::init();
 
-    let backend = CrosstermBackend::new(stderr);
-    let mut terminal = Terminal::new(backend)?;
+    run_app(&mut terminal, &mut app).await?;
 
-    run_app(&mut terminal, &app).await?;
-
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
+    ratatui::restore();
 
     Ok(())
 }
 
-async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &App) -> Result<(), Error> {
-    let mut exit = false;
-    while !exit {
-        terminal.draw(|f| {})?;
-
+async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<(), Error> {
+    loop {
         match event::read()? {
             Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
                 match key_event.code {
-                    event::KeyCode::Esc => exit = true,
+                    event::KeyCode::Esc | event::KeyCode::Char('q') => break,
                     _ => (),
                 }
             }
             _ => {}
         };
+
+        terminal.draw(|f| tui::draw(f, &app))?;
     }
 
-    app.download_torrents().await?;
+    // app.download_torrents().await?;
     Ok(())
 }
