@@ -2,6 +2,7 @@ use std::fs;
 
 use anyhow::Error;
 use rand::{Rng, distr::Alphanumeric};
+use ratatui::crossterm::event::{self, KeyEvent};
 use urlencoding::encode_binary;
 
 use crate::torrent::Torrent;
@@ -15,6 +16,8 @@ pub enum CurrentScreen {
 pub struct App {
     pub torrents: Vec<Torrent>,
     pub peer_id: String,
+    pub should_exit: bool,
+    pub selected: usize,
 }
 
 impl App {
@@ -37,6 +40,8 @@ impl App {
         let mut app = Self {
             torrents: vec![],
             peer_id,
+            should_exit: false,
+            selected: 0,
         };
 
         // TODO remove once TUI implemented
@@ -66,5 +71,22 @@ impl App {
         }
 
         Ok(())
+    }
+
+    pub fn handle_key(&mut self, key_event: KeyEvent) {
+        match key_event.code {
+            event::KeyCode::Esc | event::KeyCode::Char('q') => self.should_exit = true,
+            event::KeyCode::Up | event::KeyCode::Char('j') => {
+                if self.selected > 0 {
+                    self.selected -= 1;
+                }
+            }
+            event::KeyCode::Down | event::KeyCode::Char('k') => {
+                if self.selected + 1 < self.torrents.len() {
+                    self.selected += 1;
+                }
+            }
+            _ => (),
+        }
     }
 }

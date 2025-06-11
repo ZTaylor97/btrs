@@ -1,18 +1,15 @@
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout},
-    style::{Color, Style},
+    layout::{Constraint, Direction, Layout, Rect},
+    style::{Color, Modifier, Style},
     symbols,
     text::{Line, Text},
-    widgets::{Block, Borders, HighlightSpacing, List, ListItem, ListState, Paragraph},
+    widgets::{Block, BorderType, Borders, HighlightSpacing, List, ListItem, ListState, Paragraph},
 };
 
 use crate::app::{App, ui_models::TorrentItem};
 
-struct TorrentList {
-    list_state: ListState,
-    torrent_items: Vec<TorrentItem>,
-}
+const INFO_TEXT: &str = "(Esc) quit | (↑) move up | (↓) move down | (←) move left | (→) move right";
 
 pub fn draw(frame: &mut Frame, app: &App) {
     let vertical_chunks = Layout::default()
@@ -26,7 +23,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
 
     let middle_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(40), Constraint::Percentage((60))])
+        .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
         .split(vertical_chunks[1]);
 
     let title_block = Block::default()
@@ -39,38 +36,68 @@ pub fn draw(frame: &mut Frame, app: &App) {
 
     frame.render_widget(title, vertical_chunks[0]);
 
-    let torrent_items: Vec<ListItem> = app
-        .torrents
-        .iter()
-        .map(TorrentItem::from)
-        .map(|ti| ListItem::from(&ti))
-        .collect();
+    let torrent_items: Vec<TorrentItem> = app.torrents.iter().map(TorrentItem::from).collect();
 
-    let list_block = Block::default()
-        .title(Line::raw("Torrents"))
-        .borders(Borders::TOP)
-        .border_set(symbols::border::EMPTY);
+    render_torrents_table(frame, middle_chunks[0], &torrent_items, app.selected);
+    render_footer(frame, vertical_chunks[2]);
 
-    let list = List::new(torrent_items)
-        .block(list_block)
-        .highlight_symbol(" > ")
-        .highlight_style(Style::default().fg(Color::Blue))
-        .highlight_spacing(HighlightSpacing::Always);
-
-    let mut list_state = ListState::default();
-
-    list_state.select_first();
-
-    frame.render_stateful_widget(list, middle_chunks[0], &mut list_state);
     frame.render_widget(Block::default().borders(Borders::ALL), middle_chunks[1]);
 }
 
-impl From<&TorrentItem> for ListItem<'_> {
-    fn from(torrent_item: &TorrentItem) -> Self {
-        let line = Line::from(format!(
-            "{} - {} - {}",
-            torrent_item.name, torrent_item.status, torrent_item.info_hash
-        ));
-        ListItem::new(line)
-    }
+use ratatui::widgets::{Cell, Row, Table, TableState};
+
+pub fn render_torrents_table(f: &mut Frame, area: Rect, torrents: &[TorrentItem], selected: usize) {
+    let header = Row::new(vec![
+        Cell::from("Name"),
+        Cell::from("Status"),
+        Cell::from("Info Hash"),
+    ])
+    .style(
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+    );
+
+    let rows: Vec<Row> = torrents
+        .iter()
+        .map(|t| {
+            Row::new(vec![
+                Cell::from(t.name.clone()),
+                Cell::from(t.status.clone()),
+                Cell::from(t.info_hash.clone()),
+            ])
+        })
+        .collect();
+
+    let widths = [
+        Constraint::Percentage(40),
+        Constraint::Percentage(20),
+        Constraint::Percentage(40),
+    ];
+    let bar = " █ ";
+
+    let table = Table::new(rows, widths)
+        .header(header)
+        .block(
+            Block::default()
+                .title("Torrents")
+                .borders(Borders::ALL)
+                .border_set(symbols::border::ROUNDED),
+        )
+        .row_highlight_style(Style::default().add_modifier(Modifier::REVERSED))
+        .highlight_symbol(Text::from(vec!["".into(), bar.into(), bar.into()]))
+        .highlight_spacing(HighlightSpacing::Always);
+
+    let mut state = TableState::default();
+    state.select(Some(selected));
+
+    f.render_stateful_widget(table, area, &mut state);
+}
+
+fn render_footer(frame: &mut Frame, area: Rect) {
+    let info_footer = Paragraph::new(Text::from(INFO_TEXT))
+        .centered()
+        .block(Block::bordered().border_type(BorderType::Double));
+
+    frame.render_widget(info_footer, area);
 }

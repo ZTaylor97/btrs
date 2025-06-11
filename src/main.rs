@@ -26,12 +26,13 @@ async fn main() -> Result<(), Error> {
 
 async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<(), Error> {
     loop {
+        if app.should_exit {
+            break;
+        }
+
         match event::read()? {
             Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
-                match key_event.code {
-                    event::KeyCode::Esc | event::KeyCode::Char('q') => break,
-                    _ => (),
-                }
+                app.handle_key(key_event)
             }
             _ => {}
         };
