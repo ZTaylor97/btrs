@@ -22,7 +22,5 @@ pub async fn download(
 
     let test: TrackerResponse = serde_bencode::from_bytes(&bytes.to_vec()).unwrap();
 
-    println!("{test:?}");
-
     Ok(bytes.to_vec())
 }

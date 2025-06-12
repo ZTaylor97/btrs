@@ -66,14 +66,14 @@ impl App {
     pub fn tick(&mut self) {}
 
     pub async fn download_torrents(&self) -> Result<(), Error> {
-        for torrent in &self.torrents {
-            torrent.download(&self.peer_id).await?;
-        }
+        // for torrent in &mut self.torrents {
+        //     torrent.download(&self.peer_id).await?;
+        // }
 
         Ok(())
     }
 
-    pub fn handle_key(&mut self, key_event: KeyEvent) {
+    pub async fn handle_key(&mut self, key_event: KeyEvent) -> Result<(), Error> {
         match key_event.code {
             event::KeyCode::Esc | event::KeyCode::Char('q') => self.should_exit = true,
             event::KeyCode::Up | event::KeyCode::Char('j') => {
@@ -86,7 +86,20 @@ impl App {
                     self.selected += 1;
                 }
             }
+            event::KeyCode::Enter => self.download_torrent().await?,
             _ => (),
         }
+
+        Ok(())
+    }
+
+    pub async fn download_torrent(&mut self) -> Result<(), Error> {
+        self.torrents
+            .get_mut(self.selected)
+            .expect("Index out of range")
+            .download(&self.peer_id)
+            .await?;
+
+        Ok(())
     }
 }

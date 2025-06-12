@@ -32,7 +32,7 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Resul
 
         match event::read()? {
             Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
-                app.handle_key(key_event)
+                app.handle_key(key_event).await?
             }
             _ => {}
         };
@@ -40,6 +40,5 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Resul
         terminal.draw(|f| tui::draw(f, &app))?;
     }
 
-    // app.download_torrents().await?;
     Ok(())
 }

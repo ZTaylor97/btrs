@@ -1,5 +1,5 @@
-use crate::torrent::Torrent;
 use crate::torrent::metainfo::info::InfoEnum;
+use crate::torrent::{Peer, Torrent};
 
 pub struct TorrentItem {
     pub name: String,
@@ -7,6 +7,7 @@ pub struct TorrentItem {
     pub status: String,
     pub download_speed: String,
     pub info_hash: String,
+    pub peer_list: Vec<Peer>,
 }
 
 impl From<&Torrent> for TorrentItem {
@@ -26,6 +27,7 @@ impl From<&Torrent> for TorrentItem {
             status: String::from("Stopped"),
             download_speed: String::from("0.0kb/s"),
             info_hash: String::from(info_hash),
+            peer_list: t.get_peer_list().to_vec(),
         }
     }
 }
