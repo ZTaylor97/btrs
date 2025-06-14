@@ -41,7 +41,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
 
     frame.render_widget(title, vertical_chunks[0]);
 
-    let torrent_items: Vec<TorrentItem> = app.torrents.iter().map(TorrentItem::from).collect();
+    let torrent_items: Vec<TorrentItem> = app.torrent_items();
 
     render_torrents_table(frame, middle_chunks[0], &torrent_items, app.selected);
     render_peers(

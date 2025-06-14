@@ -5,7 +5,7 @@ use rand::{Rng, distr::Alphanumeric};
 use ratatui::crossterm::event::{self, KeyEvent};
 use urlencoding::encode_binary;
 
-use crate::torrent::Torrent;
+use crate::{app::ui_models::TorrentItem, torrent::Torrent};
 
 pub mod ui_models;
 
@@ -14,7 +14,7 @@ pub enum CurrentScreen {
 }
 
 pub struct App {
-    pub torrents: Vec<Torrent>,
+    torrents: Vec<Torrent>,
     pub peer_id: String,
     pub should_exit: bool,
     pub selected: usize,
@@ -101,5 +101,9 @@ impl App {
             .await?;
 
         Ok(())
+    }
+
+    pub fn torrent_items(&self) -> Vec<TorrentItem> {
+        self.torrents.iter().map(TorrentItem::from).collect()
     }
 }
