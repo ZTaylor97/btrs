@@ -1,6 +1,9 @@
-use std::fs;
+use std::{
+    collections::BTreeMap,
+    fs,
+};
 
-use anyhow::Error;
+use anyhow::{Error, anyhow};
 use rand::{Rng, distr::Alphanumeric};
 use ratatui::crossterm::event::{self, KeyEvent};
 use urlencoding::encode_binary;
@@ -14,10 +17,10 @@ pub enum CurrentScreen {
 }
 
 pub struct App {
-    torrents: Vec<Torrent>,
+    torrents: BTreeMap<String, Torrent>,
     pub peer_id: String,
     pub should_exit: bool,
-    pub selected: usize,
+    pub selected: usize, // selected torrent from sorted list
 }
 
 impl App {
@@ -38,7 +41,7 @@ impl App {
         let peer_id = encode_binary(&peer_id_bytes).into_owned();
 
         let mut app = Self {
-            torrents: vec![],
+            torrents: BTreeMap::new(),
             peer_id,
             should_exit: false,
             selected: 0,
@@ -47,9 +50,9 @@ impl App {
         // TODO remove once TUI implemented
         app.add_torrent("test_files/A_Little_Princess_WB39_WOC_2001-07_archive.torrent")
             .unwrap();
-
         app.add_torrent("test_files/ubuntu-24.04.2-desktop-amd64.iso.torrent")
             .unwrap();
+
         app
     }
 
@@ -58,20 +61,13 @@ impl App {
 
         let torrent = Torrent::load(&bytes)?;
 
-        self.torrents.push(torrent);
+        self.torrents
+            .insert(torrent.get_info_hash().into(), torrent);
 
         Ok(())
     }
 
     pub fn tick(&mut self) {}
-
-    pub async fn download_torrents(&self) -> Result<(), Error> {
-        // for torrent in &mut self.torrents {
-        //     torrent.download(&self.peer_id).await?;
-        // }
-
-        Ok(())
-    }
 
     pub async fn handle_key(&mut self, key_event: KeyEvent) -> Result<(), Error> {
         match key_event.code {
@@ -94,9 +90,16 @@ impl App {
     }
 
     pub async fn download_torrent(&mut self) -> Result<(), Error> {
+        let key = self
+            .torrents
+            .iter()
+            .nth(self.selected)
+            .ok_or(anyhow!("Failed getting nth element"))?
+            .0
+            .clone();
+
         self.torrents
-            .get_mut(self.selected)
-            .expect("Index out of range")
+            .get_mut(&key).ok_or( anyhow!("Element not found"))?
             .download(&self.peer_id)
             .await?;
 
@@ -104,6 +107,10 @@ impl App {
     }
 
     pub fn torrent_items(&self) -> Vec<TorrentItem> {
-        self.torrents.iter().map(TorrentItem::from).collect()
+        // By default sorted based on key, which is info hash
+        self.torrents
+            .iter()
+            .map(|(_k, v)| TorrentItem::from(v))
+            .collect()
     }
 }
