@@ -5,11 +5,13 @@ use std::fmt;
 use std::net::IpAddr;
 
 use serde::{Deserialize, Deserializer};
+use serde_bytes::ByteBuf;
 use serde_derive::{Deserialize, Serialize};
 
 use serde::de;
 use serde::de::Visitor;
 
+/// Struct for making a request to a Tracker
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct TrackerRequest {
     #[serde(skip_serializing)]
@@ -55,7 +57,6 @@ impl TrackerRequest {
         encoded
     }
 }
-
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub enum TrackerEvent {
     #[serde(rename = "started")]
@@ -66,20 +67,21 @@ pub enum TrackerEvent {
     Completed,
 }
 
+/// Struct for deserializing the response from a tracker.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct TrackerResponse {
     #[serde(rename = "failure reason")]
-    failure_reason: Option<String>,
+    pub failure_reason: Option<String>,
     #[serde(rename = "warning message")]
-    warning_message: Option<String>,
-    interval: Option<u64>,
+    pub warning_message: Option<String>,
+    pub interval: Option<u64>,
     #[serde(rename = "min interval")]
-    min_interval: Option<u64>,
+    pub min_interval: Option<u64>,
     #[serde(rename = "tracker id")]
-    tracker_id: Option<String>,
-    complete: Option<u64>,
-    incomplete: Option<u64>,
-    peers: Option<PeersEnum>,
+    pub tracker_id: Option<String>,
+    pub complete: Option<u64>,
+    pub incomplete: Option<u64>,
+    pub peers: Option<PeersEnum>,
 }
 
 #[derive(Serialize, PartialEq, Eq, Debug)]
@@ -91,9 +93,9 @@ pub enum PeersEnum {
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct PeersDict {
     #[serde(rename = "peer id")]
-    peer_id: String,
-    ip: String,
-    port: u64,
+    pub peer_id: ByteBuf,
+    pub ip: String,
+    pub port: u64,
 }
 
 /// Implement custom serde Deserialize trait on the PeersEnum
