@@ -11,6 +11,8 @@ use urlencoding::encode_binary;
 
 use metainfo::MetaInfo;
 
+use crate::torrent::download::tracker::PeersEnum;
+
 mod download;
 pub mod metainfo;
 
@@ -26,28 +28,29 @@ pub struct Peer {
     pub port: u64,
 }
 
-impl TryFrom<Value> for Peer {
-    type Error = anyhow::Error;
+impl From<PeersEnum> for Vec<Peer> {
+    fn from(peers_enum: PeersEnum) -> Self {
+        let mut peers: Vec<Peer> = vec![];
 
-    fn try_from(value: Value) -> Result<Self, Self::Error> {
-        let dict = match value {
-            Value::Dict(d) => d,
-            _ => anyhow::bail!("Expected a bencode dict"),
-        };
-
-        let ip = match dict.get(&b"ip".to_vec()).context("Missing 'ip'")? {
-            Value::Bytes(items) => {
-                String::from_utf8(items.clone()).context("Invalid UTF-8 in 'ip'")?
+        match peers_enum {
+            download::tracker::PeersEnum::Dict(peers_dicts) => {
+                for peer_raw in peers_dicts {
+                    peers.push(Peer {
+                        ip: peer_raw.ip.clone(),
+                        port: peer_raw.port,
+                    });
+                }
             }
-            _ => anyhow::bail!("'ip' is not a string"),
-        };
+            download::tracker::PeersEnum::Compact(items) => {
+                for chunk in items.chunks_exact(6) {
+                    let ip = Ipv4Addr::new(chunk[0], chunk[1], chunk[2], chunk[3]).to_string();
+                    let port: u64 = u16::from_be_bytes([chunk[4], chunk[5]]) as u64;
+                    peers.push(Peer { ip, port })
+                }
+            }
+        }
 
-        let port = match dict.get(&b"port".to_vec()).context("Missing 'port'")? {
-            Value::Int(port) => *port as u64,
-            _ => anyhow::bail!("'port' is not an int"),
-        };
-
-        Ok(Self { ip, port })
+        peers
     }
 }
 
@@ -99,32 +102,8 @@ impl Torrent {
         )
         .await?;
 
-        self.peer_list.clear();
-
-        if let Ok(Value::Dict(mut map)) = serde_bencode::from_bytes::<Value>(&result[..]) {
-            if let Some(peers) = map.remove(&b"peers".to_vec()) {
-                match peers {
-                    Value::Bytes(compact_peers) => {
-                        for chunk in compact_peers.chunks_exact(6) {
-                            let ip =
-                                Ipv4Addr::new(chunk[0], chunk[1], chunk[2], chunk[3]).to_string();
-                            let port: u64 = u16::from_be_bytes([chunk[4], chunk[5]]) as u64;
-                            self.peer_list.push(Peer { ip, port })
-                        }
-                    }
-                    Value::List(peer_list) => {
-                        for peer_raw in peer_list {
-                            let peer = Peer::try_from(peer_raw)?;
-                            self.peer_list.push(peer);
-                        }
-                    }
-                    _ => {
-                        println!("Unexpected format for peers field: {:?}", peers);
-                    }
-                }
-            } else {
-                println!("No peers field in response.");
-            }
+        if let Some(peers) = result.peers {
+            self.peer_list = peers.into();
         }
 
         Ok(())

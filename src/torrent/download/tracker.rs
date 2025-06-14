@@ -71,17 +71,17 @@ pub enum TrackerEvent {
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct TrackerResponse {
     #[serde(rename = "failure reason")]
-    failure_reason: Option<String>,
+    pub failure_reason: Option<String>,
     #[serde(rename = "warning message")]
-    warning_message: Option<String>,
-    interval: Option<u64>,
+    pub warning_message: Option<String>,
+    pub interval: Option<u64>,
     #[serde(rename = "min interval")]
-    min_interval: Option<u64>,
+    pub min_interval: Option<u64>,
     #[serde(rename = "tracker id")]
-    tracker_id: Option<String>,
-    complete: Option<u64>,
-    incomplete: Option<u64>,
-    peers: Option<PeersEnum>,
+    pub tracker_id: Option<String>,
+    pub complete: Option<u64>,
+    pub incomplete: Option<u64>,
+    pub peers: Option<PeersEnum>,
 }
 
 #[derive(Serialize, PartialEq, Eq, Debug)]
@@ -93,9 +93,9 @@ pub enum PeersEnum {
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct PeersDict {
     #[serde(rename = "peer id")]
-    peer_id: ByteBuf,
-    ip: String,
-    port: u64,
+    pub peer_id: ByteBuf,
+    pub ip: String,
+    pub port: u64,
 }
 
 /// Implement custom serde Deserialize trait on the PeersEnum
