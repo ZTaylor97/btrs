@@ -1,6 +1,7 @@
 use crate::torrent::metainfo::info::InfoEnum;
 use crate::torrent::{Peer, Torrent};
 
+#[derive(Clone)]
 pub struct TorrentItem {
     pub name: String,
     pub progress: f64,

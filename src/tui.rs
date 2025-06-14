@@ -1,3 +1,4 @@
+use crossterm::event;
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
@@ -8,141 +9,192 @@ use ratatui::{
         Block, BorderType, Borders, Cell, HighlightSpacing, Paragraph, Row, Table, TableState,
     },
 };
+use tokio::sync::mpsc::Sender;
 
-use crate::{
-    app::{App, ui_models::TorrentItem},
-    torrent::Peer,
-};
+use crate::{AppEvent, AppEventType, app::ui_models::TorrentItem, torrent::Peer};
 
 const INFO_TEXT: &str = "(Esc) quit | (⏎) toggle torrent start/stop | (↑) move up | (↓) move down";
 
-pub fn draw(frame: &mut Frame, app: &App) {
-    let vertical_chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3),
-            Constraint::Min(1),
-            Constraint::Length(3),
+pub struct Tui {
+    pub selected: usize,
+    torrent_items: Vec<TorrentItem>,
+    event_tx: Sender<AppEvent>,
+}
+
+pub enum NavDirection {
+    Up,
+    Right,
+    Down,
+    Left,
+}
+
+impl Tui {
+    pub fn new(event_tx: Sender<AppEvent>) -> Self {
+        Self {
+            selected: 0,
+            torrent_items: vec![],
+            event_tx,
+        }
+    }
+    pub fn draw(&mut self, frame: &mut Frame, torrent_items: &[TorrentItem]) {
+        let vertical_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3),
+                Constraint::Min(1),
+                Constraint::Length(3),
+            ])
+            .split(frame.area());
+
+        let middle_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
+            .split(vertical_chunks[1]);
+
+        let title_block = Block::default()
+            .borders(Borders::ALL)
+            .style(Style::default());
+
+        let title = Paragraph::new(Text::styled("BTRS", Style::default().fg(Color::Green)))
+            .centered()
+            .block(title_block);
+
+        frame.render_widget(title, vertical_chunks[0]);
+
+        self.torrent_items = torrent_items.to_vec();
+
+        // TODO: TUI components in separate structs/module\s
+        Self::render_torrents_table(frame, middle_chunks[0], &self.torrent_items, self.selected);
+        Self::render_peers(
+            frame,
+            middle_chunks[1],
+            &self.torrent_items[self.selected].peer_list,
+        );
+        Self::render_footer(frame, vertical_chunks[2]);
+
+        frame.render_widget(Block::default().borders(Borders::ALL), middle_chunks[1]);
+    }
+
+    pub fn render_torrents_table(
+        f: &mut Frame,
+        area: Rect,
+        torrents: &[TorrentItem],
+        selected: usize,
+    ) {
+        let header = Row::new(vec![
+            Cell::from("Name"),
+            Cell::from("Status"),
+            Cell::from("Info Hash"),
         ])
-        .split(frame.area());
-
-    let middle_chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
-        .split(vertical_chunks[1]);
-
-    let title_block = Block::default()
-        .borders(Borders::ALL)
-        .style(Style::default());
-
-    let title = Paragraph::new(Text::styled("BTRS", Style::default().fg(Color::Green)))
-        .centered()
-        .block(title_block);
-
-    frame.render_widget(title, vertical_chunks[0]);
-
-    let torrent_items: Vec<TorrentItem> = app.torrent_items();
-
-    render_torrents_table(frame, middle_chunks[0], &torrent_items, app.selected);
-    render_peers(
-        frame,
-        middle_chunks[1],
-        &torrent_items[app.selected].peer_list,
-    );
-    render_footer(frame, vertical_chunks[2]);
-
-    frame.render_widget(Block::default().borders(Borders::ALL), middle_chunks[1]);
-}
-
-pub fn render_torrents_table(f: &mut Frame, area: Rect, torrents: &[TorrentItem], selected: usize) {
-    let header = Row::new(vec![
-        Cell::from("Name"),
-        Cell::from("Status"),
-        Cell::from("Info Hash"),
-    ])
-    .style(
-        Style::default()
-            .fg(Color::Yellow)
-            .add_modifier(Modifier::BOLD),
-    );
-
-    let rows: Vec<Row> = torrents
-        .iter()
-        .map(|t| {
-            Row::new(vec![
-                Cell::from(Text::from(t.name.clone())),
-                Cell::from(Text::from(t.status.clone())),
-                Cell::from(Text::from(t.info_hash.clone())),
-            ])
-            .height(4)
-        })
-        .collect();
-
-    let widths = [
-        Constraint::Percentage(30),
-        Constraint::Percentage(20),
-        Constraint::Percentage(50),
-    ];
-    let bar = " █ ";
-
-    let table = Table::new(rows, widths)
-        .header(header)
-        .block(
-            Block::default()
-                .title("Torrents")
-                .borders(Borders::ALL)
-                .border_set(symbols::border::ROUNDED),
-        )
-        .row_highlight_style(
+        .style(
             Style::default()
-                .add_modifier(Modifier::REVERSED)
-                .fg(Color::LightBlue),
-        )
-        .column_highlight_style(Style::new().fg(Color::LightMagenta))
-        .highlight_symbol(Text::from(vec![
-            "".into(),
-            bar.into(),
-            bar.into(),
-            "".into(),
-        ]))
-        .highlight_spacing(HighlightSpacing::Always);
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        );
 
-    let mut state = TableState::default();
-    state.select(Some(selected));
+        let rows: Vec<Row> = torrents
+            .iter()
+            .map(|t| {
+                Row::new(vec![
+                    Cell::from(Text::from(t.name.clone())),
+                    Cell::from(Text::from(t.status.clone())),
+                    Cell::from(Text::from(t.info_hash.clone())),
+                ])
+                .height(4)
+            })
+            .collect();
 
-    f.render_stateful_widget(table, area, &mut state);
-}
+        let widths = [
+            Constraint::Percentage(30),
+            Constraint::Percentage(20),
+            Constraint::Percentage(50),
+        ];
+        let bar = " █ ";
 
-pub fn render_peers(f: &mut Frame, area: Rect, peers: &[Peer]) {
-    let header = Row::new(vec![Cell::from("IP"), Cell::from("Port")]).style(
-        Style::default()
-            .fg(Color::Yellow)
-            .add_modifier(Modifier::BOLD),
-    );
+        let table = Table::new(rows, widths)
+            .header(header)
+            .block(
+                Block::default()
+                    .title("[T]orrents")
+                    .borders(Borders::ALL)
+                    .border_set(symbols::border::ROUNDED),
+            )
+            .row_highlight_style(
+                Style::default()
+                    .add_modifier(Modifier::REVERSED)
+                    .fg(Color::LightBlue),
+            )
+            .column_highlight_style(Style::new().fg(Color::LightMagenta))
+            .highlight_symbol(Text::from(vec![
+                "".into(),
+                bar.into(),
+                bar.into(),
+                "".into(),
+            ]))
+            .highlight_spacing(HighlightSpacing::Always);
 
-    let rows: Vec<Row> = peers
-        .iter()
-        .map(|peer| {
-            Row::new(vec![
-                Cell::from(peer.ip.clone()),
-                Cell::from(peer.port.to_string()),
-            ])
-        })
-        .collect();
+        let mut state = TableState::default();
+        state.select(Some(selected));
 
-    let widths = [Constraint::Percentage(70), Constraint::Percentage(30)];
+        f.render_stateful_widget(table, area, &mut state);
+    }
 
-    let table = Table::new(rows, widths)
-        .header(header)
-        .block(Block::default().title("Peers").borders(Borders::ALL));
+    pub fn render_peers(f: &mut Frame, area: Rect, peers: &[Peer]) {
+        let header = Row::new(vec![Cell::from("IP"), Cell::from("Port")]).style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        );
 
-    f.render_widget(table, area);
-}
+        let rows: Vec<Row> = peers
+            .iter()
+            .map(|peer| {
+                Row::new(vec![
+                    Cell::from(peer.ip.clone()),
+                    Cell::from(peer.port.to_string()),
+                ])
+            })
+            .collect();
 
-fn render_footer(frame: &mut Frame, area: Rect) {
-    let info_footer = Paragraph::new(Text::from(INFO_TEXT))
-        .centered()
-        .block(Block::bordered().border_type(BorderType::Double));
+        let widths = [Constraint::Percentage(70), Constraint::Percentage(30)];
 
-    frame.render_widget(info_footer, area);
+        let table = Table::new(rows, widths)
+            .header(header)
+            .block(Block::default().title("Peers").borders(Borders::ALL));
+
+        f.render_widget(table, area);
+    }
+
+    fn render_footer(frame: &mut Frame, area: Rect) {
+        let info_footer = Paragraph::new(Text::from(INFO_TEXT))
+            .centered()
+            .block(Block::bordered().border_type(BorderType::Double));
+
+        frame.render_widget(info_footer, area);
+    }
+
+    pub fn navigate(&mut self, direction: NavDirection) {
+        match direction {
+            NavDirection::Up => {
+                if self.selected > 0 {
+                    self.selected -= 1;
+                }
+            }
+            NavDirection::Right => todo!(),
+            NavDirection::Down => {
+                if self.selected + 1 < self.torrent_items.len() {
+                    self.selected += 1;
+                }
+            }
+            NavDirection::Left => todo!(),
+        }
+    }
+
+    pub async fn activate(&mut self) {
+        let key = self.torrent_items[self.selected].info_hash.clone();
+
+        self.event_tx
+            .send(AppEvent::Custom(AppEventType::Download(key)))
+            .await;
+    }
 }

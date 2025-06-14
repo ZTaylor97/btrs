@@ -1,13 +1,11 @@
-use std::{
-    collections::BTreeMap,
-    fs,
-};
+use std::{collections::BTreeMap, fs};
 
 use anyhow::{Error, anyhow};
 use rand::{Rng, distr::Alphanumeric};
 use ratatui::crossterm::event::{self, KeyEvent};
 use urlencoding::encode_binary;
 
+use super::tui::{NavDirection, Tui};
 use crate::{app::ui_models::TorrentItem, torrent::Torrent};
 
 pub mod ui_models;
@@ -20,7 +18,6 @@ pub struct App {
     torrents: BTreeMap<String, Torrent>,
     pub peer_id: String,
     pub should_exit: bool,
-    pub selected: usize, // selected torrent from sorted list
 }
 
 impl App {
@@ -44,7 +41,6 @@ impl App {
             torrents: BTreeMap::new(),
             peer_id,
             should_exit: false,
-            selected: 0,
         };
 
         // TODO remove once TUI implemented
@@ -69,37 +65,29 @@ impl App {
 
     pub fn tick(&mut self) {}
 
-    pub async fn handle_key(&mut self, key_event: KeyEvent) -> Result<(), Error> {
+    pub async fn handle_key(&mut self, key_event: KeyEvent, tui: &mut Tui) -> Result<(), Error> {
         match key_event.code {
             event::KeyCode::Esc | event::KeyCode::Char('q') => self.should_exit = true,
             event::KeyCode::Up | event::KeyCode::Char('j') => {
-                if self.selected > 0 {
-                    self.selected -= 1;
-                }
+                tui.navigate(NavDirection::Up);
             }
             event::KeyCode::Down | event::KeyCode::Char('k') => {
-                if self.selected + 1 < self.torrents.len() {
-                    self.selected += 1;
-                }
+                tui.navigate(NavDirection::Down);
             }
-            event::KeyCode::Enter => self.download_torrent().await?,
+            event::KeyCode::Enter => {
+                tui.activate();
+            }
+            event::KeyCode::Char('T') => {}
             _ => (),
         }
 
         Ok(())
     }
 
-    pub async fn download_torrent(&mut self) -> Result<(), Error> {
-        let key = self
-            .torrents
-            .iter()
-            .nth(self.selected)
-            .ok_or(anyhow!("Failed getting nth element"))?
-            .0
-            .clone();
-
+    pub async fn download_torrent(&mut self, selected: &str) -> Result<(), Error> {
         self.torrents
-            .get_mut(&key).ok_or( anyhow!("Element not found"))?
+            .get_mut(selected)
+            .ok_or(anyhow!("Element not found"))?
             .download(&self.peer_id)
             .await?;
 
