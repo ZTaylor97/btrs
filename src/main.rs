@@ -16,7 +16,7 @@ use tokio::time::Duration;
 use crate::tui::Tui;
 
 #[derive(Debug)]
-enum AppEvent {
+pub enum AppEvent {
     Terminal(Event),
     Custom(AppEventType),
 }
@@ -24,6 +24,7 @@ enum AppEvent {
 #[derive(Debug)]
 pub enum AppEventType {
     Download(String),
+    Exit
 }
 
 #[tokio::main]
@@ -32,7 +33,7 @@ async fn main() -> Result<(), Error> {
 
     let mut terminal = ratatui::init();
 
-    run_app(&mut terminal, &mut app).await?;
+    run_app(&mut terminal, &mut app).await.unwrap();
 
     ratatui::restore();
 
@@ -64,21 +65,17 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Resul
     let mut tui = Tui::new(tx.clone());
 
     while let Some(event) = rx.recv().await {
-        if app.should_exit {
-            break;
-        }
 
         match event {
-            AppEvent::Terminal(event) => match event::read()? {
+            AppEvent::Terminal(event) => match event {
                 Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
-                    app.handle_key(key_event, &mut tui).await?
+                    tui.handle_key(key_event).await?
                 }
                 _ => {}
             },
             AppEvent::Custom(AppEventType::Download(key)) => app.download_torrent(&key).await?,
+            AppEvent::Custom(AppEventType::Exit) => break,
         }
-    }
-    loop {
         terminal.draw(|f| tui.draw(f, &app.torrent_items()))?;
     }
 

@@ -1,6 +1,7 @@
-use crossterm::event;
+use anyhow::Error;
 use ratatui::{
     Frame,
+    crossterm::event::{KeyCode, KeyEvent},
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     symbols,
@@ -180,21 +181,45 @@ impl Tui {
                     self.selected -= 1;
                 }
             }
-            NavDirection::Right => todo!(),
             NavDirection::Down => {
                 if self.selected + 1 < self.torrent_items.len() {
                     self.selected += 1;
                 }
             }
-            NavDirection::Left => todo!(),
+            _ => {}
         }
     }
 
-    pub async fn activate(&mut self) {
-        let key = self.torrent_items[self.selected].info_hash.clone();
+    pub async fn handle_key(&mut self, key_event: KeyEvent) -> Result<(), Error> {
+        match key_event.code {
+            KeyCode::Esc | KeyCode::Char('q') => {
+                self.event_tx
+                    .send(AppEvent::Custom(AppEventType::Exit))
+                    .await?
+            }
+            KeyCode::Up | KeyCode::Char('j') => {
+                self.navigate(NavDirection::Up);
+            }
+            KeyCode::Down | KeyCode::Char('k') => {
+                self.navigate(NavDirection::Down);
+            }
+            KeyCode::Right | KeyCode::Char('l') => {
+                self.navigate(NavDirection::Right);
+            }
+            KeyCode::Left | KeyCode::Char('h') => {
+                self.navigate(NavDirection::Left);
+            }
+            KeyCode::Enter => {
+                let key = self.torrent_items[self.selected].info_hash.clone();
 
-        self.event_tx
-            .send(AppEvent::Custom(AppEventType::Download(key)))
-            .await;
+                self.event_tx
+                    .send(AppEvent::Custom(AppEventType::Download(key)))
+                    .await?;
+            }
+            KeyCode::Char('T') => {}
+            _ => (),
+        }
+
+        Ok(())
     }
 }

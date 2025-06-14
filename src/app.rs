@@ -2,10 +2,8 @@ use std::{collections::BTreeMap, fs};
 
 use anyhow::{Error, anyhow};
 use rand::{Rng, distr::Alphanumeric};
-use ratatui::crossterm::event::{self, KeyEvent};
 use urlencoding::encode_binary;
 
-use super::tui::{NavDirection, Tui};
 use crate::{app::ui_models::TorrentItem, torrent::Torrent};
 
 pub mod ui_models;
@@ -64,25 +62,6 @@ impl App {
     }
 
     pub fn tick(&mut self) {}
-
-    pub async fn handle_key(&mut self, key_event: KeyEvent, tui: &mut Tui) -> Result<(), Error> {
-        match key_event.code {
-            event::KeyCode::Esc | event::KeyCode::Char('q') => self.should_exit = true,
-            event::KeyCode::Up | event::KeyCode::Char('j') => {
-                tui.navigate(NavDirection::Up);
-            }
-            event::KeyCode::Down | event::KeyCode::Char('k') => {
-                tui.navigate(NavDirection::Down);
-            }
-            event::KeyCode::Enter => {
-                tui.activate();
-            }
-            event::KeyCode::Char('T') => {}
-            _ => (),
-        }
-
-        Ok(())
-    }
 
     pub async fn download_torrent(&mut self, selected: &str) -> Result<(), Error> {
         self.torrents
