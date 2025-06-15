@@ -1,10 +1,10 @@
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FileEntry {
     pub name: String,
     pub kind: FileKind,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum FileKind {
     File,
     Directory { children: Vec<FileEntry> },
@@ -28,7 +28,7 @@ impl FileEntry {
                     if let Some(pos) = children.iter().position(|e| e.name == *segment) {
                         current = &mut children[pos];
                     } else {
-                        // Is this a file or directory?
+                        // Check if file or directory
                         let is_file = i == path.len() - 1;
 
                         let new_entry = FileEntry {
