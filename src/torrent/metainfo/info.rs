@@ -13,7 +13,7 @@ pub struct InfoMultiFile {
     #[serde(rename = "piece length")]
     pub(super) piece_length: u64,
     pub(super) pieces: ByteBuf,
-    pub(super) files: Vec<FilesDict>,
+    pub files: Vec<FilesDict>,
 }
 
 /// Fields to deserialize the files list into for
@@ -22,7 +22,7 @@ pub struct InfoMultiFile {
 pub struct FilesDict {
     pub(super) length: u64,
     pub(super) md5: Option<String>,
-    pub(super) path: Vec<String>,
+    pub path: Vec<String>,
 }
 
 /// InfoSingleFile format does not contain the files key.

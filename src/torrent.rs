@@ -11,15 +11,19 @@ use urlencoding::encode_binary;
 
 use metainfo::MetaInfo;
 
-use crate::torrent::download::tracker::PeersEnum;
+use crate::torrent::{metainfo::info::InfoEnum, tracker::PeersEnum};
 
-mod download;
+pub mod files;
 pub mod metainfo;
+pub mod tracker;
 
 pub struct Torrent {
     metainfo: MetaInfo,
     info_hash: String,
     peer_list: Vec<Peer>,
+    // TODO: TrackerSession
+    // TODO: PieceStorage
+    // TODO: Vec<PeerSession>
 }
 
 #[derive(Clone)]
@@ -33,7 +37,7 @@ impl From<PeersEnum> for Vec<Peer> {
         let mut peers: Vec<Peer> = vec![];
 
         match peers_enum {
-            download::tracker::PeersEnum::Dict(peers_dicts) => {
+            tracker::PeersEnum::Dict(peers_dicts) => {
                 for peer_raw in peers_dicts {
                     peers.push(Peer {
                         ip: peer_raw.ip.clone(),
@@ -41,7 +45,7 @@ impl From<PeersEnum> for Vec<Peer> {
                     });
                 }
             }
-            download::tracker::PeersEnum::Compact(items) => {
+            tracker::PeersEnum::Compact(items) => {
                 for chunk in items.chunks_exact(6) {
                     let ip = Ipv4Addr::new(chunk[0], chunk[1], chunk[2], chunk[3]).to_string();
                     let port: u64 = u16::from_be_bytes([chunk[4], chunk[5]]) as u64;
@@ -96,9 +100,9 @@ impl Torrent {
     }
 
     pub async fn download(&mut self, peer_id: &str) -> Result<(), Error> {
-        let result = download::download(
+        let result = tracker::fetch_peers(
             &self.metainfo,
-            &download::tracker::TrackerRequest::new(&self.info_hash, &peer_id),
+            &tracker::TrackerRequest::new(&self.info_hash, &peer_id),
         )
         .await?;
 
@@ -109,13 +113,34 @@ impl Torrent {
         Ok(())
     }
 
-    pub fn get_metainfo(&self) -> &MetaInfo {
-        &self.metainfo
+    pub fn get_name(&self) -> String {
+        match &self.metainfo.info {
+            InfoEnum::MultiFile(info_multi_file) => info_multi_file.name.clone(),
+            InfoEnum::SingleFile(info_single_file) => info_single_file.name.clone(),
+        }
     }
+
     pub fn get_info_hash(&self) -> &str {
         &self.info_hash
     }
+
     pub fn get_peer_list(&self) -> &[Peer] {
         &self.peer_list
+    }
+
+    pub fn get_file_tree(&self) -> files::FileEntry {
+        let mut root = files::FileEntry::new(".");
+
+        match &self.metainfo.info {
+            InfoEnum::MultiFile(info_multi_file) => {
+                for file in &info_multi_file.files {
+                    root.insert_path(&file.path);
+                }
+            }
+            InfoEnum::SingleFile(info_single_file) => {
+                root.insert_path(&[info_single_file.name.clone()]);
+            }
+        }
+        root
     }
 }

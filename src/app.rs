@@ -15,7 +15,6 @@ pub enum CurrentScreen {
 pub struct App {
     torrents: BTreeMap<String, Torrent>,
     pub peer_id: String,
-    pub should_exit: bool,
 }
 
 impl App {
@@ -38,7 +37,6 @@ impl App {
         let mut app = Self {
             torrents: BTreeMap::new(),
             peer_id,
-            should_exit: false,
         };
 
         // TODO remove once TUI implemented

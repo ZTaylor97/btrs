@@ -161,7 +161,7 @@ impl Tui {
 
         let table = Table::new(rows, widths)
             .header(header)
-            .block(Block::default().title("Peers").borders(Borders::ALL));
+            .block(Block::default().title("[P]eers").borders(Borders::ALL));
 
         f.render_widget(table, area);
     }
@@ -192,11 +192,6 @@ impl Tui {
 
     pub async fn handle_key(&mut self, key_event: KeyEvent) -> Result<(), Error> {
         match key_event.code {
-            KeyCode::Esc | KeyCode::Char('q') => {
-                self.event_tx
-                    .send(AppEvent::Custom(AppEventType::Exit))
-                    .await?
-            }
             KeyCode::Up | KeyCode::Char('j') => {
                 self.navigate(NavDirection::Up);
             }
@@ -215,6 +210,11 @@ impl Tui {
                 self.event_tx
                     .send(AppEvent::Custom(AppEventType::Download(key)))
                     .await?;
+            }
+            KeyCode::Esc | KeyCode::Char('q') => {
+                self.event_tx
+                    .send(AppEvent::Custom(AppEventType::Exit))
+                    .await?
             }
             KeyCode::Char('T') => {}
             _ => (),

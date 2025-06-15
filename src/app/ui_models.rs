@@ -13,14 +13,9 @@ pub struct TorrentItem {
 
 impl From<&Torrent> for TorrentItem {
     fn from(t: &Torrent) -> Self {
-        // TODO: Can probably make better methods for extracting fields rather than exposing underlying structures
-        let metainfo = t.get_metainfo();
         let info_hash = t.get_info_hash();
 
-        let name = match &metainfo.info {
-            InfoEnum::MultiFile(info_multi_file) => info_multi_file.name.clone(),
-            InfoEnum::SingleFile(info_single_file) => info_single_file.name.clone(),
-        };
+        let name = t.get_name();
 
         TorrentItem {
             name: name,
@@ -32,3 +27,5 @@ impl From<&Torrent> for TorrentItem {
         }
     }
 }
+
+
