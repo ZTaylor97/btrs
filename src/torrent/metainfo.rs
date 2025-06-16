@@ -13,16 +13,16 @@ pub mod info;
 /// Deserialize from .torrent files.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct MetaInfo {
-    pub info: InfoEnum,
-    pub announce: String,
+    pub(super) info: InfoEnum,
+    pub(super) announce: String,
     #[serde(rename = "announce-list")]
-    pub announce_list: Option<Vec<Vec<String>>>,
+    pub(super) announce_list: Option<Vec<Vec<String>>>,
     #[serde(rename = "creation date")]
-    creation_date: Option<u64>,
-    comment: Option<String>,
+    pub(super) creation_date: Option<u64>,
+    pub(super) comment: Option<String>,
     #[serde(rename = "created by")]
-    created_by: Option<String>,
-    encoding: Option<String>,
+    pub(super) created_by: Option<String>,
+    pub(super) encoding: Option<String>,
 }
 
 impl MetaInfo {
@@ -32,6 +32,14 @@ impl MetaInfo {
     /// is invalid.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, anyhow::Error> {
         Ok(serde_bencode::from_bytes(bytes)?)
+    }
+
+    pub fn info(&self) -> &InfoEnum {
+        return &self.info;
+    }
+
+    pub fn get_tracker_urls(&self) -> &str {
+        return &self.announce;
     }
 }
 

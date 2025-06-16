@@ -24,7 +24,7 @@ pub enum AppEvent {
 #[derive(Debug)]
 pub enum AppEventType {
     Download(String),
-    Exit
+    Exit,
 }
 
 #[tokio::main]
@@ -40,7 +40,10 @@ async fn main() -> Result<(), Error> {
     Ok(())
 }
 
-async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Result<(), Error> {
+async fn run_app<B: Backend>(
+    terminal: &mut Terminal<B>,
+    app: &mut App,
+) -> Result<(), anyhow::Error> {
     let (tx, mut rx) = mpsc::channel::<AppEvent>(100);
 
     // Start terminal event thread
@@ -65,7 +68,6 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Resul
     let mut tui = Tui::new(tx.clone());
 
     while let Some(event) = rx.recv().await {
-
         match event {
             AppEvent::Terminal(event) => match event {
                 Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
@@ -76,7 +78,8 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> Resul
             AppEvent::Custom(AppEventType::Download(key)) => app.download_torrent(&key).await?,
             AppEvent::Custom(AppEventType::Exit) => break,
         }
-        terminal.draw(|f| tui.draw(f, &app.torrent_items()))?;
+        let torrent_items = app.torrent_items()?;
+        terminal.draw(|f| tui.draw(f, &torrent_items))?;
     }
 
     Ok(())

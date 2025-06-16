@@ -113,34 +113,34 @@ impl Torrent {
         Ok(())
     }
 
-    pub fn get_name(&self) -> String {
+    pub fn name(&self) -> &str {
         match &self.metainfo.info {
-            InfoEnum::MultiFile(info_multi_file) => info_multi_file.name.clone(),
-            InfoEnum::SingleFile(info_single_file) => info_single_file.name.clone(),
+            InfoEnum::MultiFile(info_multi_file) => &info_multi_file.name,
+            InfoEnum::SingleFile(info_single_file) => &info_single_file.name,
         }
     }
 
-    pub fn get_info_hash(&self) -> &str {
+    pub fn info_hash(&self) -> &str {
         &self.info_hash
     }
 
-    pub fn get_peer_list(&self) -> &[Peer] {
+    pub fn peer_list(&self) -> &[Peer] {
         &self.peer_list
     }
 
-    pub fn get_file_tree(&self) -> files::FileEntry {
+    pub fn get_file_tree(&self) -> Result<files::FileEntry, anyhow::Error> {
         let mut root = files::FileEntry::new(".");
 
         match &self.metainfo.info {
             InfoEnum::MultiFile(info_multi_file) => {
                 for file in &info_multi_file.files {
-                    root.insert_path(&file.path);
+                    root.insert_path(&file.path)?;
                 }
             }
             InfoEnum::SingleFile(info_single_file) => {
-                root.insert_path(&[info_single_file.name.clone()]);
+                root.insert_path(&[info_single_file.name.clone()])?;
             }
         }
-        root
+        Ok(root)
     }
 }

@@ -147,7 +147,11 @@ pub async fn fetch_peers(
     torrent: &MetaInfo,
     request: &TrackerRequest,
 ) -> Result<TrackerResponse, anyhow::Error> {
-    let url = format!("{}?{}", torrent.announce, request.to_query_string());
+    let url = format!(
+        "{}?{}",
+        torrent.get_tracker_urls(),
+        request.to_query_string()
+    );
     let client = reqwest::Client::new();
     let res = client.get(url).send().await?;
     let bytes = res.bytes().await?;

@@ -11,22 +11,18 @@ pub struct TorrentItem {
     pub files: FileEntry,
 }
 
-impl From<&Torrent> for TorrentItem {
-    fn from(t: &Torrent) -> Self {
-        let info_hash = t.get_info_hash();
+impl TryFrom<&Torrent> for TorrentItem {
+    type Error = anyhow::Error;
 
-        let name = t.get_name();
-
-        let files = t.get_file_tree();
-
-        TorrentItem {
-            name: name,
+    fn try_from(t: &Torrent) -> Result<Self, Self::Error> {
+        Ok(TorrentItem {
+            name: String::from(t.name()),
             progress: 0.0,
             status: String::from("Stopped"),
             download_speed: String::from("0.0kb/s"),
-            info_hash: String::from(info_hash),
-            peer_list: t.get_peer_list().to_vec(),
-            files,
-        }
+            info_hash: String::from(t.info_hash()),
+            peer_list: t.peer_list().to_vec(),
+            files: t.get_file_tree()?,
+        })
     }
 }

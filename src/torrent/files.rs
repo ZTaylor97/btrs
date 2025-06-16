@@ -1,3 +1,5 @@
+use anyhow::{Result, anyhow};
+
 #[derive(Debug, Clone)]
 pub struct FileEntry {
     pub name: String,
@@ -18,11 +20,21 @@ impl FileEntry {
         }
     }
 
-    pub fn insert_path(&mut self, path: &[String]) {
+    /// Takes an array of paths for a file and creates the appropriate file hierarchy
+    /// in the provided [`FileEntry`] object.
+    ///
+    /// Returns an [`Error`](`anyhow::Error`) if an insert is attempted on a
+    /// leaf node file rather than a directory node.
+    pub fn insert_path(&mut self, path: &[String]) -> Result<(), anyhow::Error> {
         let mut current = self;
         for (i, segment) in path.iter().enumerate() {
             match &mut current.kind {
-                FileKind::File => panic!("Did not expect FileKind::File"),
+                FileKind::File => {
+                    return Err(anyhow!(
+                        "Did not expect a FileKind::File when inserting path {segment} for {:?}",
+                        current.name
+                    ));
+                }
                 FileKind::Directory { children } => {
                     // Check if path already exists
                     if let Some(pos) = children.iter().position(|e| e.name == *segment) {
@@ -46,6 +58,8 @@ impl FileEntry {
                 }
             }
         }
+
+        Ok(())
     }
 }
 
@@ -54,7 +68,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_insert_path_builds_tree() {
+    fn test_insert_path_builds_tree() -> Result<()> {
         let mut root = FileEntry {
             name: "root".to_string(),
             kind: FileKind::Directory { children: vec![] },
@@ -71,10 +85,8 @@ mod tests {
         ];
 
         for path in paths {
-            root.insert_path(&path);
+            root.insert_path(&path)?;
         }
-
-        println!("{root:?}");
 
         // Root should have two children: "folder" and "another"
         let children = match &root.kind {
@@ -139,5 +151,7 @@ mod tests {
             }
             _ => panic!("another is not a directory"),
         }
+
+        Ok(())
     }
 }

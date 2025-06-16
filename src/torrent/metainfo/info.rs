@@ -11,8 +11,8 @@ use serde_derive::{Deserialize, Serialize};
 pub struct InfoMultiFile {
     pub name: String,
     #[serde(rename = "piece length")]
-    pub(super) piece_length: u64,
-    pub(super) pieces: ByteBuf,
+    pub piece_length: u64,
+    pub pieces: ByteBuf,
     pub files: Vec<FilesDict>,
 }
 
@@ -20,8 +20,8 @@ pub struct InfoMultiFile {
 /// a multi file torrent in an [`InfoMultiFile`].
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct FilesDict {
-    pub(super) length: u64,
-    pub(super) md5: Option<String>,
+    pub length: u64,
+    pub md5: Option<String>,
     pub path: Vec<String>,
 }
 
@@ -30,11 +30,11 @@ pub struct FilesDict {
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct InfoSingleFile {
     pub name: String,
-    pub(super) length: u64,
-    pub(super) md5: Option<String>,
+    pub length: u64,
+    pub md5: Option<String>,
     #[serde(rename = "piece length")]
-    pub(super) piece_length: u64,
-    pub(super) pieces: ByteBuf,
+    pub piece_length: u64,
+    pub pieces: ByteBuf,
 }
 
 /// Allow automatic serialization to correct `Info` format

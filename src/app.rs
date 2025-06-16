@@ -53,8 +53,7 @@ impl App {
 
         let torrent = Torrent::load(&bytes)?;
 
-        self.torrents
-            .insert(torrent.get_info_hash().into(), torrent);
+        self.torrents.insert(torrent.info_hash().into(), torrent);
 
         Ok(())
     }
@@ -71,11 +70,11 @@ impl App {
         Ok(())
     }
 
-    pub fn torrent_items(&self) -> Vec<TorrentItem> {
+    pub fn torrent_items(&self) -> Result<Vec<TorrentItem>, anyhow::Error> {
         // By default sorted based on key, which is info hash
         self.torrents
             .iter()
-            .map(|(_k, v)| TorrentItem::from(v))
+            .map(|(_k, v)| TorrentItem::try_from(v))
             .collect()
     }
 }
