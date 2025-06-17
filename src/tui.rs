@@ -23,6 +23,7 @@ const INFO_TEXT: &str = "(Esc) quit | (⏎) toggle torrent start/stop | (↑) mo
 pub struct Tui {
     torrents_table: TorrentsTable,
     torrent_details: TorrentDetails,
+    focused_pane: FocusedPane,
     torrent_items: Vec<TorrentItem>,
     event_tx: Sender<AppEvent>,
 }
@@ -33,19 +34,19 @@ pub enum NavDirection {
     Down,
     Left,
 }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FocusedPane {
+    Left,
+    Right,
+}
 
 impl Tui {
     pub fn new(event_tx: Sender<AppEvent>) -> Self {
         Self {
-            torrents_table: TorrentsTable {
-                selected: 0,
-                active: false,
-            },
-            torrent_details: TorrentDetails {
-                selected: 0,
-                active: false,
-            },
+            torrents_table: TorrentsTable { selected: 0 },
+            torrent_details: TorrentDetails { selected: 0 },
             torrent_items: vec![],
+            focused_pane: FocusedPane::Left,
             event_tx,
         }
     }
@@ -76,13 +77,25 @@ impl Tui {
 
         self.torrent_items = torrent_items.to_vec();
 
-        self.torrents_table
-            .render(frame, middle_chunks[0], &self.torrent_items);
+        self.torrents_table.render(
+            frame,
+            middle_chunks[0],
+            &self.torrent_items,
+            self.focused_pane == FocusedPane::Left,
+        );
 
-        self.torrent_details.render_peers(
+        // self.torrent_details.render_peers(
+        //     frame,
+        //     middle_chunks[1],
+        //     &self.torrent_items[self.torrents_table.selected].peer_list,
+        //     self.focused_pane == FocusedPane::Right,
+        // );
+
+        self.torrent_details.render_files(
             frame,
             middle_chunks[1],
-            &self.torrent_items[self.torrents_table.selected].peer_list,
+            &torrent_items[self.torrents_table.selected].files,
+            self.focused_pane == FocusedPane::Right,
         );
         Self::render_footer(frame, vertical_chunks[2]);
     }
@@ -97,33 +110,24 @@ impl Tui {
 
     pub fn navigate(&mut self, direction: NavDirection) {
         match direction {
-            NavDirection::Up => {
-                if self.torrents_table.active && self.torrents_table.selected > 0 {
-                    self.torrents_table.selected -= 1;
+            NavDirection::Up => match self.focused_pane {
+                FocusedPane::Left => {
+                    self.torrents_table.selected =
+                        self.torrents_table.selected.wrapping_sub(1) % self.torrent_items.len();
                 }
-
-                if self.torrent_details.active && self.torrent_details.selected > 0 {
-                    self.torrent_details.selected -= 1;
+                FocusedPane::Right => {
+                    self.torrent_details.selected = self.torrent_details.selected.saturating_sub(1);
                 }
-            }
-            NavDirection::Down => {
-                if self.torrents_table.active
-                    && self.torrents_table.selected + 1 < self.torrent_items.len()
-                {
-                    self.torrents_table.selected += 1;
+            },
+            NavDirection::Down => match self.focused_pane {
+                FocusedPane::Left => {
+                    self.torrents_table.selected =
+                        (self.torrents_table.selected + 1) % self.torrent_items.len();
                 }
-                if self.torrent_details.active {
-                    self.torrent_details.selected += 1;
-                }
-            }
-            NavDirection::Right => {
-                self.torrents_table.active = false;
-                self.torrent_details.active = true;
-            }
-            NavDirection::Left => {
-                self.torrents_table.active = true;
-                self.torrent_details.active = false;
-            }
+                FocusedPane::Right => self.torrent_details.selected += 1,
+            },
+            NavDirection::Right => self.focused_pane = FocusedPane::Right,
+            NavDirection::Left => self.focused_pane = FocusedPane::Left,
         }
     }
 
@@ -155,6 +159,8 @@ impl Tui {
                     .send(AppEvent::Custom(AppEventType::Exit))
                     .await?
             }
+            KeyCode::Char('P') => self.focused_pane = FocusedPane::Right,
+            KeyCode::Char('T') => self.focused_pane = FocusedPane::Left,
             _ => (),
         }
 

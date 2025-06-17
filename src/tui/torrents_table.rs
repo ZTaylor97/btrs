@@ -7,11 +7,10 @@ use crate::app::ui_models::TorrentItem; // adjust as needed
 
 pub struct TorrentsTable {
     pub selected: usize,
-    pub active: bool,
 }
 
 impl TorrentsTable {
-    pub fn render(&self, f: &mut Frame, area: Rect, torrents: &[TorrentItem]) {
+    pub fn render(&self, f: &mut Frame, area: Rect, torrents: &[TorrentItem], active: bool) {
         let header = Row::new(vec![
             Cell::from("Name"),
             Cell::from("Status"),
@@ -40,7 +39,7 @@ impl TorrentsTable {
             Constraint::Percentage(30),
         ];
 
-        let table = Table::new(rows, widths)
+        let mut table = Table::new(rows, widths)
             .header(header)
             .block(
                 Block::default()
@@ -57,8 +56,19 @@ impl TorrentsTable {
             .highlight_symbol(" > ")
             .highlight_spacing(HighlightSpacing::Always);
 
+        if active {
+            table = table.block(
+                Block::default()
+                    .title("Torrents")
+                    .borders(Borders::ALL)
+                    .border_set(symbols::border::ROUNDED)
+                    .add_modifier(Modifier::BOLD)
+                    .border_style(Style::default().fg(Color::LightBlue)),
+            );
+        }
+
         let mut state = TableState::default();
-        if self.active {
+        if active {
             state.select(Some(self.selected));
         }
 
