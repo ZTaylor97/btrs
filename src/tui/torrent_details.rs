@@ -1,25 +1,68 @@
 use ratatui::{
     Frame,
-    layout::{Constraint, Rect},
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
-    symbols,
     text::Span,
     widgets::{
-        Block, Borders, Cell, List, ListItem, ListState, Row, Scrollbar, ScrollbarState, Table,
-        TableState,
+        Cell, List, ListItem, ListState, Row, Scrollbar, ScrollbarState, Table, TableState, Tabs,
     },
 };
 
-use crate::torrent::{
-    Peer,
-    files::{FileEntry, FileKind},
+use crate::{
+    app::ui_models::TorrentItem,
+    torrent::{
+        Peer,
+        files::{FileEntry, FileKind},
+    },
 };
 
 pub struct TorrentDetails {
     pub selected: usize,
+    pub selected_tab: usize,
 }
 
 impl TorrentDetails {
+    pub fn render_tabs(
+        &mut self,
+        f: &mut Frame,
+        area: Rect,
+        torrent_item: &TorrentItem,
+        active: bool,
+    ) {
+        // Split into tab bar and content
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(1), Constraint::Min(0)].as_ref())
+            .split(area);
+
+        // Tab bar
+        let titles: Vec<Span> = vec!["[P]eers", "[F]iles"]
+            .iter()
+            .enumerate()
+            .map(|(idx, t)| {
+                let title = if idx == self.selected_tab {
+                    format!("{}{}", &t[1..2], &t[3..])
+                } else {
+                    String::from(*t)
+                };
+                let style = Style::default()
+                    .fg(Color::LightBlue)
+                    .add_modifier(Modifier::BOLD);
+                Span::styled(format!(" {} ", title), style)
+            })
+            .collect();
+
+        let tabs = Tabs::new(titles).select(self.selected_tab);
+
+        f.render_widget(tabs, chunks[0]);
+
+        match self.selected_tab {
+            0 => self.render_peers(f, chunks[1], &torrent_item.peer_list, active),
+            1 => self.render_files(f, chunks[1], &torrent_item.files, active),
+            _ => (),
+        }
+    }
+
     pub fn render_peers(&mut self, f: &mut Frame, area: Rect, peers: &[Peer], active: bool) {
         let header = Row::new(vec![Cell::from("IP"), Cell::from("Port")]).style(
             Style::default()
@@ -39,12 +82,7 @@ impl TorrentDetails {
 
         let widths = [Constraint::Percentage(70), Constraint::Percentage(30)];
 
-        let table = Table::new(rows, widths).header(header).block(
-            Block::default()
-                .title("[P]eers")
-                .borders(Borders::ALL)
-                .border_set(symbols::border::ROUNDED),
-        );
+        let table = Table::new(rows, widths).header(header);
 
         let mut scroll_state = ScrollbarState::default().content_length(peers.len());
 
@@ -80,30 +118,9 @@ impl TorrentDetails {
         let mut state = ListState::default();
         state.select(Some(self.selected));
 
-        let list = List::new(items)
-            .block(
-                Block::default()
-                    .title("Files")
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Gray)),
-            )
-            .highlight_style(Style::default().fg(Color::LightBlue));
+        let list = List::new(items).highlight_style(Style::default().fg(Color::LightBlue));
 
         f.render_stateful_widget(list, area, &mut state);
-    }
-}
-
-fn flatten_file_entries<'a>(
-    entry: &'a FileEntry,
-    depth: usize,
-    output: &mut Vec<(usize, &'a FileEntry)>,
-) {
-    output.push((depth, entry));
-
-    if let FileKind::Directory { children } = &entry.kind {
-        for child in children {
-            flatten_file_entries(child, depth + 1, output);
-        }
     }
 }
 

@@ -44,7 +44,10 @@ impl Tui {
     pub fn new(event_tx: Sender<AppEvent>) -> Self {
         Self {
             torrents_table: TorrentsTable { selected: 0 },
-            torrent_details: TorrentDetails { selected: 0 },
+            torrent_details: TorrentDetails {
+                selected: 0,
+                selected_tab: 0,
+            },
             torrent_items: vec![],
             focused_pane: FocusedPane::Left,
             event_tx,
@@ -84,19 +87,13 @@ impl Tui {
             self.focused_pane == FocusedPane::Left,
         );
 
-        // self.torrent_details.render_peers(
-        //     frame,
-        //     middle_chunks[1],
-        //     &self.torrent_items[self.torrents_table.selected].peer_list,
-        //     self.focused_pane == FocusedPane::Right,
-        // );
-
-        self.torrent_details.render_files(
+        self.torrent_details.render_tabs(
             frame,
             middle_chunks[1],
-            &torrent_items[self.torrents_table.selected].files,
+            &torrent_items[self.torrents_table.selected],
             self.focused_pane == FocusedPane::Right,
         );
+
         Self::render_footer(frame, vertical_chunks[2]);
     }
 
@@ -159,7 +156,14 @@ impl Tui {
                     .send(AppEvent::Custom(AppEventType::Exit))
                     .await?
             }
-            KeyCode::Char('P') => self.focused_pane = FocusedPane::Right,
+            KeyCode::Char('P') => {
+                self.focused_pane = FocusedPane::Right;
+                self.torrent_details.selected_tab = 0;
+            }
+            KeyCode::Char('F') => {
+                self.focused_pane = FocusedPane::Right;
+                self.torrent_details.selected_tab = 1;
+            }
             KeyCode::Char('T') => self.focused_pane = FocusedPane::Left,
             _ => (),
         }
