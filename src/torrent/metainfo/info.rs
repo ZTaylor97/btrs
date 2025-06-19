@@ -9,32 +9,32 @@ use serde_derive::{Deserialize, Serialize};
 /// Present when torrent consists of multiple files.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct InfoMultiFile {
-    pub(super) name: String,
+    pub name: String,
     #[serde(rename = "piece length")]
-    pub(super) piece_length: u64,
-    pub(super) pieces: ByteBuf,
-    pub(super) files: Vec<FilesDict>,
+    pub piece_length: u64,
+    pub pieces: ByteBuf,
+    pub files: Vec<FilesDict>,
 }
 
 /// Fields to deserialize the files list into for
 /// a multi file torrent in an [`InfoMultiFile`].
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct FilesDict {
-    pub(super) length: u64,
-    pub(super) md5: Option<String>,
-    pub(super) path: Vec<String>,
+    pub length: u64,
+    pub md5: Option<String>,
+    pub path: Vec<String>,
 }
 
 /// InfoSingleFile format does not contain the files key.
 /// Present when torrent is only one file.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct InfoSingleFile {
-    pub(super) name: String,
-    pub(super) length: u64,
-    pub(super) md5: Option<String>,
+    pub name: String,
+    pub length: u64,
+    pub md5: Option<String>,
     #[serde(rename = "piece length")]
-    pub(super) piece_length: u64,
-    pub(super) pieces: ByteBuf,
+    pub piece_length: u64,
+    pub pieces: ByteBuf,
 }
 
 /// Allow automatic serialization to correct `Info` format

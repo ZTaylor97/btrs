@@ -2,67 +2,73 @@
 //! torrent client, including loading METAINFO and
 //! making requests to trackers.
 
-use std::{fs, net::Ipv4Addr};
+use std::net::Ipv4Addr;
 
 use anyhow::{Context, Error};
-use rand::{Rng, distr::Alphanumeric};
 use serde_bencode::value::Value;
 use sha1::{Digest, Sha1};
 use urlencoding::encode_binary;
 
 use metainfo::MetaInfo;
 
-use download::tracker::TrackerRequest;
+use crate::torrent::{metainfo::info::InfoEnum, tracker::PeersEnum};
 
-mod download;
-mod metainfo;
-
-pub struct Torrents {
-    torrents: Vec<Torrent>,
-    peer_id: String,
-}
+pub mod files;
+pub mod metainfo;
+pub mod tracker;
 
 pub struct Torrent {
     metainfo: MetaInfo,
     info_hash: String,
+    peer_list: Vec<Peer>,
+    // TODO: TrackerSession
+    // TODO: PieceStorage
+    // TODO: Vec<PeerSession>
 }
 
-impl Torrents {
-    pub fn new() -> Self {
-        let prefix = b"-RS0001-";
-        let mut peer_id_bytes = [0u8; 20];
+#[derive(Clone)]
+pub struct Peer {
+    pub ip: String,
+    pub port: u64,
+}
 
-        peer_id_bytes[..8].copy_from_slice(prefix);
+impl From<PeersEnum> for Vec<Peer> {
+    fn from(peers_enum: PeersEnum) -> Self {
+        let mut peers: Vec<Peer> = vec![];
 
-        let rand_part: String = rand::rng()
-            .sample_iter(&Alphanumeric)
-            .take(12)
-            .map(char::from)
-            .collect();
-
-        peer_id_bytes[8..].copy_from_slice(rand_part.as_bytes());
-
-        let peer_id = encode_binary(&peer_id_bytes).into_owned();
-
-        Torrents {
-            torrents: vec![],
-            peer_id,
+        match peers_enum {
+            tracker::PeersEnum::Dict(peers_dicts) => {
+                for peer_raw in peers_dicts {
+                    peers.push(Peer {
+                        ip: peer_raw.ip.clone(),
+                        port: peer_raw.port,
+                    });
+                }
+            }
+            tracker::PeersEnum::Compact(items) => {
+                for chunk in items.chunks_exact(6) {
+                    let ip = Ipv4Addr::new(chunk[0], chunk[1], chunk[2], chunk[3]).to_string();
+                    let port: u64 = u16::from_be_bytes([chunk[4], chunk[5]]) as u64;
+                    peers.push(Peer { ip, port })
+                }
+            }
         }
+
+        peers
     }
+}
 
-    /// Adds a torrent to the client from a .torrent `file_path`
-    pub fn add_torrent(&mut self, file_path: &str) -> Result<(), Error> {
-        let bytes: Vec<u8> = fs::read(file_path).expect("{file_path} not found.");
+impl Torrent {
+    /// Adds a torrent to the client from bytes loaded from a .torrent file.
+    pub fn load(bytes: &[u8]) -> Result<Self, Error> {
         let metainfo = MetaInfo::from_bytes(&bytes)?;
+        let info_hash = Self::calculate_info_hash(&bytes)?;
 
-        let info_hash = Self::info_hash(&bytes)?;
-
-        self.torrents.push(Torrent {
+        Ok(Self {
             metainfo,
             info_hash,
-        });
-
-        Ok(())
+            peer_list: vec![],
+        })
     }
 
     /// Calculates an `info_hash` from the info dictionary bytes found in
@@ -72,7 +78,7 @@ impl Torrents {
     ///     - bytes are not valid bencode,
     ///     - info key is missing from bencode,
     ///     - an error happens converting back to bytes
-    pub fn info_hash(bytes: &[u8]) -> Result<String, Error> {
+    fn calculate_info_hash(bytes: &[u8]) -> Result<String, Error> {
         let value: Value = serde_bencode::from_bytes(&bytes)
             .context("Failed to decode .torrent file as bencode")?;
 
@@ -93,39 +99,48 @@ impl Torrents {
         Ok(encode_binary(&hash).into_owned())
     }
 
-    /// Basic WIP function to make a request to a tracker.
-    pub async fn download_torrents(&self) {
-        for torrent in &self.torrents {
-            let result = download::download(
-                &torrent.metainfo,
-                &TrackerRequest::new(&torrent.info_hash, &self.peer_id),
-            )
-            .await
-            .unwrap();
+    pub async fn download(&mut self, peer_id: &str) -> Result<(), Error> {
+        let result = tracker::fetch_peers(
+            &self.metainfo,
+            &tracker::TrackerRequest::new(&self.info_hash, &peer_id),
+        )
+        .await?;
 
-            if let Ok(Value::Dict(mut map)) = serde_bencode::from_bytes::<Value>(&result[..]) {
-                if let Some(peers) = map.remove(&b"peers".to_vec()) {
-                    match peers {
-                        Value::Bytes(compact_peers) => {
-                            println!("Compact peers: {} bytes", compact_peers.len());
+        if let Some(peers) = result.peers {
+            self.peer_list = peers.into();
+        }
 
-                            for chunk in compact_peers.chunks_exact(6) {
-                                let ip = Ipv4Addr::new(chunk[0], chunk[1], chunk[2], chunk[3]);
-                                let port = u16::from_be_bytes([chunk[4], chunk[5]]);
-                                println!("Peer: {}:{}", ip, port);
-                            }
-                        }
-                        Value::List(peer_list) => {
-                            println!("Non-compact peer list with {} entries", peer_list.len());
-                        }
-                        _ => {
-                            println!("Unexpected format for peers field: {:?}", peers);
-                        }
-                    }
-                } else {
-                    println!("No peers field in response.");
+        Ok(())
+    }
+
+    pub fn name(&self) -> &str {
+        match &self.metainfo.info {
+            InfoEnum::MultiFile(info_multi_file) => &info_multi_file.name,
+            InfoEnum::SingleFile(info_single_file) => &info_single_file.name,
+        }
+    }
+
+    pub fn info_hash(&self) -> &str {
+        &self.info_hash
+    }
+
+    pub fn peer_list(&self) -> &[Peer] {
+        &self.peer_list
+    }
+
+    pub fn get_file_tree(&self) -> Result<files::FileEntry, anyhow::Error> {
+        let mut root = files::FileEntry::new(".");
+
+        match &self.metainfo.info {
+            InfoEnum::MultiFile(info_multi_file) => {
+                for file in &info_multi_file.files {
+                    root.insert_path(&file.path)?;
                 }
             }
+            InfoEnum::SingleFile(info_single_file) => {
+                root.insert_path(&[info_single_file.name.clone()])?;
+            }
         }
+        Ok(root)
     }
 }
