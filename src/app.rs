@@ -1,3 +1,4 @@
+use futures::future::try_join_all;
 use std::{collections::BTreeMap, fs};
 
 use anyhow::{Error, anyhow};
@@ -39,10 +40,7 @@ impl App {
             peer_id,
         };
 
-        // TODO remove once TUI implemented
         app.add_torrent("test_files/A_Little_Princess_WB39_WOC_2001-07_archive.torrent")
-            .unwrap();
-        app.add_torrent("test_files/ubuntu-24.04.2-desktop-amd64.iso.torrent")
             .unwrap();
 
         app
@@ -51,7 +49,7 @@ impl App {
     pub fn add_torrent(&mut self, file_path: &str) -> Result<(), Error> {
         let bytes: Vec<u8> = fs::read(file_path).expect("{file_path} not found.");
 
-        let torrent = Torrent::load(&bytes)?;
+        let torrent = Torrent::load(&bytes, &self.peer_id)?;
 
         self.torrents.insert(torrent.info_hash().into(), torrent);
 
@@ -64,17 +62,19 @@ impl App {
         self.torrents
             .get_mut(selected)
             .ok_or(anyhow!("Element not found"))?
-            .download(&self.peer_id)
-            .await?;
+            .start_tracker();
 
         Ok(())
     }
 
-    pub fn torrent_items(&self) -> Result<Vec<TorrentItem>, anyhow::Error> {
+    pub async fn torrent_items(&self) -> Result<Vec<TorrentItem>, anyhow::Error> {
         // By default sorted based on key, which is info hash
-        self.torrents
+
+        let futures = self
+            .torrents
             .iter()
-            .map(|(_k, v)| TorrentItem::try_from(v))
-            .collect()
+            .map(|(_k, v)| TorrentItem::try_from_torrent(v));
+
+        try_join_all(futures).await
     }
 }
