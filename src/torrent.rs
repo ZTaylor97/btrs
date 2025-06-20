@@ -20,8 +20,8 @@ use crate::torrent::{
 
 pub mod files;
 pub mod metainfo;
+pub mod peer_session;
 pub mod tracker;
-
 pub struct Torrent {
     metainfo: MetaInfo,
     info_hash: String,
@@ -108,12 +108,17 @@ impl Torrent {
         let tracker = Arc::clone(&self.tracker_session);
 
         tokio::spawn(async move {
+            {
+                let mut session = tracker.lock().await;
+                if session.started {
+                    return;
+                }
+
+                session.started = true;
+            }
             loop {
                 let wait_time = {
                     let mut session = tracker.lock().await;
-                    if session.started {
-                        return;
-                    }
                     session.started = true;
                     if let Err(e) = session.update().await {
                         eprintln!("[Tracker] Update failed: {:?}", e);
