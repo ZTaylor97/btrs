@@ -21,6 +21,7 @@ use crate::torrent::{
 pub mod files;
 pub mod metainfo;
 pub mod peer_session;
+mod piece_manager;
 pub mod tracker;
 pub struct Torrent {
     metainfo: MetaInfo,

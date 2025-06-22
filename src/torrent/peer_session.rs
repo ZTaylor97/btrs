@@ -1,8 +1,14 @@
+use std::sync::Arc;
+
 use anyhow::bail;
 use bytes::BytesMut;
+use ratatui::crossterm::event::read;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, BufReader},
-    net::{TcpListener, TcpStream},
+    net::{
+        TcpListener, TcpStream,
+        tcp::{OwnedReadHalf, OwnedWriteHalf},
+    },
 };
 
 mod message;
@@ -12,7 +18,6 @@ use message::MessageType;
 const PSTR: &[u8; 19] = b"BitTorrent protocol";
 
 pub struct PeerSession {
-    stream: TcpStream,
     peer_id: [u8; 20],
     info_hash: [u8; 20],
     url: String,
@@ -20,6 +25,7 @@ pub struct PeerSession {
     is_choking: bool,
     is_peer_interested: bool,
     is_interested: bool,
+    bitfield: Vec<u8>,
 }
 
 impl PeerSession {
@@ -28,10 +34,7 @@ impl PeerSession {
         peer_id: [u8; 20],
         info_hash: [u8; 20],
     ) -> Result<Self, anyhow::Error> {
-        let stream = TcpStream::connect(url).await?;
-
         Ok(Self {
-            stream,
             peer_id,
             info_hash,
             url: String::from(url),
@@ -39,64 +42,73 @@ impl PeerSession {
             is_choking: true,
             is_peer_interested: false,
             is_interested: false,
+            bitfield: vec![],
         })
     }
 
-    pub async fn handshake(&mut self) -> Result<[u8; 68], anyhow::Error> {
-        // Write a valid BitTorrent handshake request
+    pub async fn send_handshake(
+        info_hash: &[u8; 20],
+        peer_id: &[u8; 20],
+        writer: &mut OwnedWriteHalf,
+    ) -> Result<(), anyhow::Error> {
         let mut request_bytes: Vec<u8> = Vec::new();
-        request_bytes.push(19u8); // pstrlen
-        request_bytes.extend_from_slice(PSTR); // pstr
+        request_bytes.push(19u8);
+        request_bytes.extend_from_slice(PSTR);
         request_bytes.extend_from_slice(&[0u8; 8]); // Reserved bytes
-        request_bytes.extend_from_slice(&self.info_hash);
-        request_bytes.extend_from_slice(&self.peer_id);
+        request_bytes.extend_from_slice(info_hash);
+        request_bytes.extend_from_slice(peer_id);
 
-        self.stream.writable().await?;
-        self.stream.write_all(&request_bytes).await?;
+        writer.writable().await?;
+        writer.write_all(&request_bytes).await?;
 
+        Ok(())
+    }
+
+    pub async fn read_handshake(reader: &mut OwnedReadHalf) -> Result<[u8; 68], anyhow::Error> {
         let mut response_bytes = [0u8; 68];
-        self.stream.readable().await?;
-        self.stream.read_exact(&mut response_bytes).await?;
+        reader.readable().await?;
+        reader.read_exact(&mut response_bytes).await?;
 
         Ok(response_bytes)
     }
 
     pub async fn start(&mut self) -> Result<(), anyhow::Error> {
-        let handshake_response = self.handshake().await?;
+        let stream = TcpStream::connect(&self.url).await?;
+        let (mut reader, mut writer) = stream.into_split();
+
+        Self::send_handshake(&self.info_hash, &self.peer_id, &mut writer);
+        let handshake_response = Self::read_handshake(&mut reader).await?;
         let resp = &handshake_response[28..48];
 
         if resp != self.info_hash {
-            self.stream.shutdown().await?;
+            drop(reader);
+            drop(writer);
             bail!(
                 "Dropping connection to peer, info_hash invalid {resp:?}:{:?}",
                 self.info_hash
             );
         }
 
-        self.send_interested().await?;
-        self.send_unchoke().await?;
+        Self::send_interested(&mut writer).await?;
+        Self::send_unchoke(&mut writer).await?;
 
-        let mut request_count = 0;
-        let mut total_request_count = 0;
+        // Create locks for reader and writer streams
+        let reader = Arc::new(tokio::sync::Mutex::new(reader));
+        let writer = Arc::new(tokio::sync::Mutex::new(writer));
 
-        loop {
-            let msg = self.read_message().await?;
-
-            if request_count < 5 {
-                self.send_request(total_request_count, 0, 16 * 1024).await?;
-                total_request_count += 1;
-                request_count += 1;
-            }
+        tokio::spawn(async move {
+            let msg = {
+                let mut reader = reader.lock().await;
+                Self::read_message(&mut reader).await.unwrap()
+            };
 
             match msg {
-                MessageType::Choke => self.is_choked = true,
-                MessageType::Unchoke => self.is_choked = false,
-                MessageType::Interested => self.is_peer_interested = true,
-                MessageType::NotInterested => self.is_peer_interested = false,
+                MessageType::Choke => (),         //self.is_choked = true,
+                MessageType::Unchoke => (),       //self.is_choked = false,
+                MessageType::Interested => (),    //self.is_peer_interested = true,
+                MessageType::NotInterested => (), //self.is_peer_interested = false,
                 MessageType::Have(piece_id) => println!("Peer has {piece_id}"),
-                MessageType::Bitfield(items) => {
-                    println!("Printing bitfield: {items:?}")
-                }
+                MessageType::Bitfield(items) => (), //self.bitfield = items,
                 MessageType::Request {
                     index,
                     begin,
@@ -107,7 +119,6 @@ impl PeerSession {
                     begin,
                     block,
                 } => {
-                    request_count = 0;
                     println!(
                         "Received block at index {index}, offset {begin} and length {}",
                         block.len()
@@ -123,16 +134,16 @@ impl PeerSession {
                 MessageType::Port(port) => println!("Port request {port}"),
                 MessageType::KeepAlive => println!("Received keep alive!"),
             }
-        }
+        });
 
         Ok(())
     }
 
-    pub async fn read_message(&mut self) -> Result<MessageType, anyhow::Error> {
-        self.stream.readable().await?;
+    pub async fn read_message(reader: &mut OwnedReadHalf) -> Result<MessageType, anyhow::Error> {
+        reader.readable().await?;
 
         let mut len_buf = [0u8; 4];
-        self.stream.read_exact(&mut len_buf).await?;
+        reader.read_exact(&mut len_buf).await?;
         let msg_len = u32::from_be_bytes(len_buf);
 
         let total_len = 4 + msg_len as usize;
@@ -140,32 +151,32 @@ impl PeerSession {
         msg_buf.extend_from_slice(&len_buf);
 
         msg_buf.resize(total_len, 0);
-        self.stream.read_exact(&mut msg_buf[4..]).await?;
+        reader.read_exact(&mut msg_buf[4..]).await?;
 
         let id = if msg_len > 0 { msg_buf[4] } else { 0 };
 
         MessageType::from_bytes(&mut msg_buf, id, msg_len)
     }
 
-    pub async fn send_interested(&mut self) -> Result<(), anyhow::Error> {
+    pub async fn send_interested(writer: &mut OwnedWriteHalf) -> Result<(), anyhow::Error> {
         let interested_bytes = MessageType::Interested.to_bytes();
 
-        self.stream.writable().await?;
-        self.stream.write_all(&interested_bytes).await?;
+        writer.writable().await?;
+        writer.write_all(&interested_bytes).await?;
 
         Ok(())
     }
-    pub async fn send_unchoke(&mut self) -> Result<(), anyhow::Error> {
+    pub async fn send_unchoke(writer: &mut OwnedWriteHalf) -> Result<(), anyhow::Error> {
         let interested_bytes = MessageType::Unchoke.to_bytes();
 
-        self.stream.writable().await?;
-        self.stream.write_all(&interested_bytes).await?;
+        writer.writable().await?;
+        writer.write_all(&interested_bytes).await?;
 
         Ok(())
     }
 
     pub async fn send_request(
-        &mut self,
+        writer: &mut OwnedWriteHalf,
         index: u32,
         begin: u32,
         length: u32,
@@ -177,9 +188,9 @@ impl PeerSession {
         }
         .to_bytes();
 
-        self.stream.writable().await?;
+        writer.writable().await?;
 
-        self.stream.write_all(&request_bytes).await?;
+        writer.write_all(&request_bytes).await?;
 
         Ok(())
     }
@@ -208,8 +219,8 @@ mod peer_session_tests {
             // Read incoming handshake (should be 68 bytes)
             let mut handshake = [0u8; 68];
             let count = socket.read(&mut handshake).await.unwrap();
-            // println!("test sent {count} bytes");
-            // println!("[Mock] Received handshake: {:?}", &handshake);
+            println!("test sent {count} bytes");
+            println!("[Mock] Received handshake: {:?}", &handshake);
 
             // Write a valid BitTorrent handshake request
             let mut request = Vec::new();
@@ -235,7 +246,13 @@ mod peer_session_tests {
                 .await
                 .unwrap();
 
-        peer_session.handshake().await.unwrap();
+        let stream = TcpStream::connect(&peer_session.url).await.unwrap();
+        let (mut reader, mut writer) = stream.into_split();
+
+        PeerSession::send_handshake(&peer_session.info_hash, &peer_session.peer_id, &mut writer)
+            .await
+            .unwrap();
+        PeerSession::read_handshake(&mut reader).await.unwrap();
     }
 
     #[tokio::test]
@@ -252,6 +269,9 @@ mod peer_session_tests {
             PeerSession::new(&format!("127.0.0.1:{port}"), MOCK_CLIENT_ID, info_hash)
                 .await
                 .unwrap();
+
+        let num_pieces: u32 = 2021;
+        let piece_length: u32 = 2048 * 1024;
 
         peer_session.start().await.unwrap();
     }
