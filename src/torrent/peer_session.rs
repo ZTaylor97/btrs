@@ -1,5 +1,7 @@
 use tokio::net::{TcpListener, TcpStream};
 
+mod message;
+
 const PSTR: &[u8; 19] = b"BitTorrent protocol";
 
 pub struct PeerSession {
