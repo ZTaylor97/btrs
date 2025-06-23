@@ -2,12 +2,15 @@ use std::sync::Arc;
 
 use anyhow::bail;
 use bytes::BytesMut;
-use ratatui::crossterm::event::read;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, BufReader},
     net::{
         TcpListener, TcpStream,
         tcp::{OwnedReadHalf, OwnedWriteHalf},
+    },
+    sync::{
+        Mutex,
+        mpsc::{Receiver, Sender},
     },
 };
 
@@ -21,11 +24,19 @@ pub struct PeerSession {
     peer_id: [u8; 20],
     info_hash: [u8; 20],
     url: String,
-    is_choked: bool,
-    is_choking: bool,
-    is_peer_interested: bool,
-    is_interested: bool,
-    bitfield: Vec<u8>,
+    peer_state: Arc<Mutex<PeerState>>,
+    piece_request_rx: Receiver<PieceRequest>,
+    piece_request_tx: Sender<PieceResponse>,
+}
+
+pub struct Piece
+
+pub struct PeerState {
+    pub is_choked: bool,
+    pub is_choking: bool,
+    pub is_peer_interested: bool,
+    pub is_interested: bool,
+    pub bitfield: Vec<u8>,
 }
 
 impl PeerSession {
@@ -34,15 +45,19 @@ impl PeerSession {
         peer_id: [u8; 20],
         info_hash: [u8; 20],
     ) -> Result<Self, anyhow::Error> {
-        Ok(Self {
-            peer_id,
-            info_hash,
-            url: String::from(url),
+        let peer_state = PeerState {
             is_choked: true,
             is_choking: true,
             is_peer_interested: false,
             is_interested: false,
             bitfield: vec![],
+        };
+
+        Ok(Self {
+            peer_id,
+            info_hash,
+            url: String::from(url),
+            peer_state: Arc::new(Mutex::new(peer_state)),
         })
     }
 
@@ -76,7 +91,7 @@ impl PeerSession {
         let stream = TcpStream::connect(&self.url).await?;
         let (mut reader, mut writer) = stream.into_split();
 
-        Self::send_handshake(&self.info_hash, &self.peer_id, &mut writer);
+        Self::send_handshake(&self.info_hash, &self.peer_id, &mut writer).await?;
         let handshake_response = Self::read_handshake(&mut reader).await?;
         let resp = &handshake_response[28..48];
 
@@ -96,43 +111,79 @@ impl PeerSession {
         let reader = Arc::new(tokio::sync::Mutex::new(reader));
         let writer = Arc::new(tokio::sync::Mutex::new(writer));
 
-        tokio::spawn(async move {
-            let msg = {
-                let mut reader = reader.lock().await;
-                Self::read_message(&mut reader).await.unwrap()
-            };
+        let state_ref = self.peer_state.clone();
 
-            match msg {
-                MessageType::Choke => (),         //self.is_choked = true,
-                MessageType::Unchoke => (),       //self.is_choked = false,
-                MessageType::Interested => (),    //self.is_peer_interested = true,
-                MessageType::NotInterested => (), //self.is_peer_interested = false,
-                MessageType::Have(piece_id) => println!("Peer has {piece_id}"),
-                MessageType::Bitfield(items) => (), //self.bitfield = items,
-                MessageType::Request {
-                    index,
-                    begin,
-                    length,
-                } => println!("Sorry buddy, but no"),
-                MessageType::Piece {
-                    index,
-                    begin,
-                    block,
-                } => {
-                    println!(
-                        "Received block at index {index}, offset {begin} and length {}",
-                        block.len()
-                    );
+        tokio::spawn(async move {
+            loop {
+                let msg = {
+                    let mut reader = reader.lock().await;
+                    Self::read_message(&mut reader).await.unwrap()
+                };
+                {
+                    let mut state = state_ref.lock().await;
+                    match msg {
+                        MessageType::Choke => state.is_choked = true,
+                        MessageType::Unchoke => state.is_choked = false,
+                        MessageType::Interested => state.is_peer_interested = true,
+                        MessageType::NotInterested => state.is_peer_interested = false,
+                        MessageType::Have(piece_id) => println!("Peer has {piece_id}"),
+                        MessageType::Bitfield(items) => state.bitfield = items,
+                        MessageType::Request {
+                            index,
+                            begin,
+                            length,
+                        } => println!("Sorry buddy, but no"),
+                        MessageType::Piece {
+                            index,
+                            begin,
+                            block,
+                        } => {
+                            println!(
+                                "Received block at index {index}, offset {begin} and length {}",
+                                block.len()
+                            );
+                        }
+                        MessageType::Cancel {
+                            index,
+                            begin,
+                            length,
+                        } => {
+                            println!(
+                                "Cancelled block at index {index}, offset {begin} and length {length}"
+                            )
+                        }
+                        MessageType::Port(port) => println!("Port request {port}"),
+                        MessageType::KeepAlive => println!("Received keep alive!"),
+                    }
                 }
-                MessageType::Cancel {
-                    index,
-                    begin,
-                    length,
-                } => {
-                    println!("Cancelled block at index {index}, offset {begin} and length {length}")
-                }
-                MessageType::Port(port) => println!("Port request {port}"),
-                MessageType::KeepAlive => println!("Received keep alive!"),
+            }
+        });
+
+        // Requester task
+        tokio::spawn(async move {
+            // let current_piece = None
+            // let request_queue = Queue(size = 5)
+            loop {
+                // Note: Need some way to signal current_piece has had all blocks requested
+                // Note: What happens if requests to peer get lost or something.
+                // if let Some(piece) = current_piece {
+                //    if request_queue.is_full() or (time_since_last_request > 5 seconds and not request_queue.is_empty()) {
+                //     
+                //     Self::write_messages(&mut writer, request_queue.get_all_work())
+                //   
+                //     
+                //   
+                //   
+                //    } else {
+                //      work = current_piece.get_next_block()
+                //      if let Ok(work) = work { request_queue.add_work(work) }
+                //    }
+                //} else {
+                //  current_piece = PieceManagerQueue.GiveMeWork(timeout = 100ms)
+                //}
+                // if current_piece.is_complete() {
+                //  current_piece = None
+                //}
             }
         });
 
@@ -241,7 +292,7 @@ mod peer_session_tests {
 
         start_mock_peer_server(port).await;
 
-        let mut peer_session =
+        let peer_session =
             PeerSession::new(&format!("127.0.0.1:{port}"), MOCK_CLIENT_ID, MOCK_INFO_HASH)
                 .await
                 .unwrap();
