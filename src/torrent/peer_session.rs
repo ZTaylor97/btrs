@@ -1,7 +1,8 @@
-use std::sync::Arc;
+use std::{collections::VecDeque, sync::Arc, time::Duration};
 
 use anyhow::bail;
 use bytes::BytesMut;
+use ratatui::widgets::Block;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, BufReader},
     net::{
@@ -10,13 +11,15 @@ use tokio::{
     },
     sync::{
         Mutex,
-        mpsc::{Receiver, Sender},
+        mpsc::{Receiver, Sender, channel},
     },
 };
 
 mod message;
 
 use message::MessageType;
+
+use crate::torrent::piece_manager::{PieceRequest, PieceResponse};
 
 const PSTR: &[u8; 19] = b"BitTorrent protocol";
 
@@ -25,11 +28,9 @@ pub struct PeerSession {
     info_hash: [u8; 20],
     url: String,
     peer_state: Arc<Mutex<PeerState>>,
-    piece_request_rx: Receiver<PieceRequest>,
+    piece_request_rx: Arc<Mutex<VecDeque<PieceRequest>>>,
     piece_request_tx: Sender<PieceResponse>,
 }
-
-pub struct Piece
 
 pub struct PeerState {
     pub is_choked: bool,
@@ -39,11 +40,32 @@ pub struct PeerState {
     pub bitfield: Vec<u8>,
 }
 
+pub struct BlockInfo {
+    pub offset: u32,
+    pub length: u32,
+    pub received: bool,
+    pub data: Option<Vec<u8>>,
+}
+
+pub struct PieceWork {
+    pub index: u32,
+    pub length: usize,
+    pub block_size: usize,
+    pub blocks: Vec<BlockInfo>,
+}
+pub struct BlockResponse {
+    index: u32,
+    begin: u32,
+    block: Vec<u8>,
+}
+
 impl PeerSession {
     pub async fn new(
         url: &str,
         peer_id: [u8; 20],
         info_hash: [u8; 20],
+        piece_request_rx: Arc<Mutex<VecDeque<PieceRequest>>>,
+        piece_request_tx: Sender<PieceResponse>,
     ) -> Result<Self, anyhow::Error> {
         let peer_state = PeerState {
             is_choked: true,
@@ -58,6 +80,8 @@ impl PeerSession {
             info_hash,
             url: String::from(url),
             peer_state: Arc::new(Mutex::new(peer_state)),
+            piece_request_rx,
+            piece_request_tx,
         })
     }
 
@@ -88,6 +112,8 @@ impl PeerSession {
     }
 
     pub async fn start(&mut self) -> Result<(), anyhow::Error> {
+        let (mut block_tx, mut block_rx) = channel::<BlockResponse>(100);
+
         let stream = TcpStream::connect(&self.url).await?;
         let (mut reader, mut writer) = stream.into_split();
 
@@ -113,6 +139,7 @@ impl PeerSession {
 
         let state_ref = self.peer_state.clone();
 
+        // Reader task
         tokio::spawn(async move {
             loop {
                 let msg = {
@@ -138,10 +165,12 @@ impl PeerSession {
                             begin,
                             block,
                         } => {
-                            println!(
-                                "Received block at index {index}, offset {begin} and length {}",
-                                block.len()
-                            );
+                            // send to block manager task
+                            block_tx.try_send(BlockResponse {
+                                index,
+                                begin,
+                                block,
+                            });
                         }
                         MessageType::Cancel {
                             index,
@@ -159,21 +188,50 @@ impl PeerSession {
             }
         });
 
-        // Requester task
+        let piece_queue = self.piece_request_rx.clone();
+
+        // Block manager and requester task
         tokio::spawn(async move {
-            // let current_piece = None
-            // let request_queue = Queue(size = 5)
+            let mut current_piece: Option<PieceRequest> = None;
+            let mut piece_work: Option<PieceWork> = None;
+            let max_in_flight = 5;
             loop {
-                // Note: Need some way to signal current_piece has had all blocks requested
-                // Note: What happens if requests to peer get lost or something.
+                // Fetch next piece to download from queue if not currently working on one.
+                if current_piece.is_none() {
+                    let mut piece_request_queue = piece_queue.lock().await;
+                    current_piece = piece_request_queue.pop_front();
+                }
+
+                // Work on piece
+                if let Some(piece) = &mut current_piece {
+                    // TODO: consolidate current piece and piece work as they should be synced.
+                    if let Some(work) = &mut piece_work {
+                        // TODO: implement
+                        // Check if piece work is complete and send it to PieceManager.
+                        if piece_work.is_complete() {
+                            self.piece_request_tx.send(piece_work.to_piece_response());
+                            current_piece = None;
+                            piece_work = None;
+                        }
+                    }
+
+                    // First consume all blocks from peer reader task channel if there are any.
+                    while let Ok(block_response) = block_rx.try_recv() {
+
+                        // TODO: get block_response and put it into piece work
+                    }
+                } else {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+
                 // if let Some(piece) = current_piece {
                 //    if request_queue.is_full() or (time_since_last_request > 5 seconds and not request_queue.is_empty()) {
-                //     
+                //
                 //     Self::write_messages(&mut writer, request_queue.get_all_work())
-                //   
-                //     
-                //   
-                //   
+                //
+                //
+                //
+                //
                 //    } else {
                 //      work = current_piece.get_next_block()
                 //      if let Ok(work) = work { request_queue.add_work(work) }
