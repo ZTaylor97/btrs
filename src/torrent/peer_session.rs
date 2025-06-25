@@ -16,8 +16,10 @@ use tokio::{
 };
 
 mod message;
+mod work;
 
 use message::MessageType;
+use work::{BlockInfo, BlockResponse, BlockStatus, PieceWork};
 
 use crate::torrent::piece_manager::{PieceRequest, PieceResponse};
 
@@ -38,25 +40,6 @@ pub struct PeerState {
     pub is_peer_interested: bool,
     pub is_interested: bool,
     pub bitfield: Vec<u8>,
-}
-
-pub struct BlockInfo {
-    pub offset: u32,
-    pub length: u32,
-    pub received: bool,
-    pub data: Option<Vec<u8>>,
-}
-
-pub struct PieceWork {
-    pub index: u32,
-    pub length: usize,
-    pub block_size: usize,
-    pub blocks: Vec<BlockInfo>,
-}
-pub struct BlockResponse {
-    index: u32,
-    begin: u32,
-    block: Vec<u8>,
 }
 
 impl PeerSession {
@@ -112,7 +95,7 @@ impl PeerSession {
     }
 
     pub async fn start(&mut self) -> Result<(), anyhow::Error> {
-        let (mut block_tx, mut block_rx) = channel::<BlockResponse>(100);
+        let (block_tx, mut block_rx) = channel::<BlockResponse>(100);
 
         let stream = TcpStream::connect(&self.url).await?;
         let (mut reader, mut writer) = stream.into_split();
@@ -189,59 +172,73 @@ impl PeerSession {
         });
 
         let piece_queue = self.piece_request_rx.clone();
+        let piece_tx = self.piece_request_tx.clone();
 
         // Block manager and requester task
         tokio::spawn(async move {
-            let mut current_piece: Option<PieceRequest> = None;
             let mut piece_work: Option<PieceWork> = None;
             let max_in_flight = 5;
             loop {
                 // Fetch next piece to download from queue if not currently working on one.
-                if current_piece.is_none() {
+                if piece_work.is_none() {
                     let mut piece_request_queue = piece_queue.lock().await;
-                    current_piece = piece_request_queue.pop_front();
+                    let current_piece = piece_request_queue.pop_front();
+
+                    if let Some(piece_req) = current_piece {
+                        piece_work = Some(piece_req.into());
+                    }
                 }
 
-                // Work on piece
-                if let Some(piece) = &mut current_piece {
-                    // TODO: consolidate current piece and piece work as they should be synced.
-                    if let Some(work) = &mut piece_work {
-                        // TODO: implement
-                        // Check if piece work is complete and send it to PieceManager.
-                        if piece_work.is_complete() {
-                            self.piece_request_tx.send(piece_work.to_piece_response());
-                            current_piece = None;
-                            piece_work = None;
-                        }
+                // Do work if there is work to do
+                if let Some(mut work) = piece_work.take() {
+                    // Send piece to piece manager if it is complete
+                    if work.is_complete() {
+                        piece_tx.send(work.to_piece_response()).await;
+                        piece_work = None;
+                        continue;
                     }
 
                     // First consume all blocks from peer reader task channel if there are any.
                     while let Ok(block_response) = block_rx.try_recv() {
+                        let offset = block_response.begin;
 
-                        // TODO: get block_response and put it into piece work
+                        let block = work.blocks.iter_mut().find(|block| {
+                            block.offset == offset && block.status == BlockStatus::InProgress
+                        });
+
+                        if let Some(block) = block {
+                            block.data = block_response.block;
+                            block.status = BlockStatus::Full;
+                        } else {
+                            eprintln!(
+                                "WARNING: Received block response from peer that did not match expected block offset."
+                            );
+                        }
                     }
-                } else {
-                    tokio::time::sleep(Duration::from_millis(100)).await;
+
+                    // Get next 5 blocks (if there are 5 to get) and make requests to peer
+                    let next_blocks: Vec<&mut BlockInfo> = work
+                        .blocks
+                        .iter_mut()
+                        .filter(|block| block.status == BlockStatus::Empty)
+                        .take(5)
+                        .map(|block| {
+                            block.status = BlockStatus::InProgress;
+                            block
+                        })
+                        .collect();
+
+                    // TODO: Convert BlockInfo into Message::Request bytes for sending requests in batches.
+                    for block in next_blocks {
+                        Self::send_request(writer);
+                    }
+
+                    // Give ownership back if work not complete yet
+                    piece_work = Some(work);
                 }
 
-                // if let Some(piece) = current_piece {
-                //    if request_queue.is_full() or (time_since_last_request > 5 seconds and not request_queue.is_empty()) {
-                //
-                //     Self::write_messages(&mut writer, request_queue.get_all_work())
-                //
-                //
-                //
-                //
-                //    } else {
-                //      work = current_piece.get_next_block()
-                //      if let Ok(work) = work { request_queue.add_work(work) }
-                //    }
-                //} else {
-                //  current_piece = PieceManagerQueue.GiveMeWork(timeout = 100ms)
-                //}
-                // if current_piece.is_complete() {
-                //  current_piece = None
-                //}
+                // Give other tasks some time to execute if there is no work
+                tokio::time::sleep(Duration::from_millis(100)).await;
             }
         });
 
