@@ -127,16 +127,19 @@ impl PeerSession {
         PeerSession::send_unchoke(&mut writer).await?;
 
         // Start receiving messages from the peer.
-        let reader = Arc::new(tokio::sync::Mutex::new(reader));
+        let reader = Arc::new(Mutex::new(reader));
         let state_ref = self.peer_state.clone();
-        tokio::spawn(async move { PeerSession::peer_listener(state_ref, reader, block_tx).await });
+        let reader_handle =
+            tokio::spawn(
+                async move { PeerSession::peer_listener(state_ref, reader, block_tx).await },
+            );
 
         // Start sending messages to the peer
         let state_ref = self.peer_state.clone();
         let piece_queue = piece_request_rx.clone();
         let piece_tx = piece_request_tx.clone();
-        let writer = Arc::new(tokio::sync::Mutex::new(writer));
-        tokio::spawn(async move {
+        let writer = Arc::new(Mutex::new(writer));
+        let writer_handle = tokio::spawn(async move {
             PeerSession::peer_requester(state_ref, piece_queue, piece_tx, writer, block_rx).await
         });
 
@@ -159,9 +162,9 @@ impl PeerSession {
             // Fetch next piece to download from queue if not currently working on one.
             if piece_work.is_none() {
                 let mut piece_request_queue = piece_queue.lock().await;
-                let current_piece = piece_request_queue.pop_front();
+                let new_piece = piece_request_queue.pop_front();
 
-                if let Some(piece_req) = current_piece {
+                if let Some(piece_req) = new_piece {
                     if state.has_piece(piece_req.piece_index as usize) {
                         piece_work = Some(piece_req.into());
                     } else {
@@ -408,7 +411,7 @@ mod peer_session_tests {
     }
 
     #[tokio::test]
-    // #[ignore]
+    #[ignore]
     pub async fn test_download() {
         // This is the info hash for the A_Little_Princess torrent from the Internet_Archive
         let info_hash = [
