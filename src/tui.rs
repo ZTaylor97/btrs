@@ -109,8 +109,10 @@ impl Tui {
         match direction {
             NavDirection::Up => match self.focused_pane {
                 FocusedPane::Left => {
-                    self.torrents_table.selected =
-                        self.torrents_table.selected.wrapping_sub(1) % self.torrent_items.len();
+                    if self.torrent_items.len() > 0 {
+                        self.torrents_table.selected =
+                            self.torrents_table.selected.wrapping_sub(1) % self.torrent_items.len();
+                    }
                 }
                 FocusedPane::Right => {
                     self.torrent_details.selected = self.torrent_details.selected.saturating_sub(1);
@@ -118,8 +120,10 @@ impl Tui {
             },
             NavDirection::Down => match self.focused_pane {
                 FocusedPane::Left => {
-                    self.torrents_table.selected =
-                        (self.torrents_table.selected + 1) % self.torrent_items.len();
+                    if self.torrent_items.len() > 0 {
+                        self.torrents_table.selected =
+                            (self.torrents_table.selected + 1) % self.torrent_items.len();
+                    }
                 }
                 FocusedPane::Right => self.torrent_details.selected += 1,
             },

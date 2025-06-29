@@ -2,28 +2,32 @@
 //! torrent client, including loading METAINFO and
 //! making requests to trackers.
 
-use std::net::Ipv4Addr;
+use std::{net::Ipv4Addr, sync::Arc};
 
 use anyhow::{Context, Error};
 use serde_bencode::value::Value;
 use sha1::{Digest, Sha1};
+use tokio::sync::Mutex;
+use tokio::time::{Duration, Instant};
 use urlencoding::encode_binary;
 
 use metainfo::MetaInfo;
 
-use crate::torrent::{metainfo::info::InfoEnum, tracker::PeersEnum};
+use crate::torrent::{
+    metainfo::info::InfoEnum,
+    tracker::{PeersEnum, TrackerSession},
+};
 
 pub mod files;
 pub mod metainfo;
+pub mod peer_session;
+mod piece_manager;
 pub mod tracker;
-
 pub struct Torrent {
     metainfo: MetaInfo,
     info_hash: String,
-    peer_list: Vec<Peer>,
-    // TODO: TrackerSession
-    // TODO: PieceStorage
-    // TODO: Vec<PeerSession>
+    tracker_session: Arc<Mutex<TrackerSession>>, // TODO: PieceStorage
+                                                 // TODO: Vec<PeerSession>
 }
 
 #[derive(Clone)]
@@ -60,14 +64,16 @@ impl From<PeersEnum> for Vec<Peer> {
 
 impl Torrent {
     /// Adds a torrent to the client from bytes loaded from a .torrent file.
-    pub fn load(bytes: &[u8]) -> Result<Self, Error> {
+    pub fn load(bytes: &[u8], peer_id: &str) -> Result<Self, Error> {
         let metainfo = MetaInfo::from_bytes(&bytes)?;
         let info_hash = Self::calculate_info_hash(&bytes)?;
 
+        let tracker_session = TrackerSession::new(&metainfo, &info_hash, peer_id);
+
         Ok(Self {
             metainfo,
-            info_hash,
-            peer_list: vec![],
+            info_hash: String::from(info_hash),
+            tracker_session: Arc::new(Mutex::new(tracker_session)),
         })
     }
 
@@ -99,18 +105,37 @@ impl Torrent {
         Ok(encode_binary(&hash).into_owned())
     }
 
-    pub async fn download(&mut self, peer_id: &str) -> Result<(), Error> {
-        let result = tracker::fetch_peers(
-            &self.metainfo,
-            &tracker::TrackerRequest::new(&self.info_hash, &peer_id),
-        )
-        .await?;
+    pub fn start_tracker(&mut self) {
+        let tracker = Arc::clone(&self.tracker_session);
 
-        if let Some(peers) = result.peers {
-            self.peer_list = peers.into();
-        }
+        tokio::spawn(async move {
+            {
+                let mut session = tracker.lock().await;
+                if session.started {
+                    return;
+                }
 
-        Ok(())
+                session.started = true;
+            }
+            loop {
+                let wait_time = {
+                    let mut session = tracker.lock().await;
+                    session.started = true;
+                    if let Err(e) = session.update().await {
+                        eprintln!("[Tracker] Update failed: {:?}", e);
+                    }
+
+                    // Wait 5 seconds if wait time is in the past
+                    if Instant::from_std(session.next_announce) < Instant::now() {
+                        Instant::now() + Duration::from_secs(5)
+                    } else {
+                        Instant::from_std(session.next_announce)
+                    }
+                };
+
+                tokio::time::sleep_until(wait_time).await;
+            }
+        });
     }
 
     pub fn name(&self) -> &str {
@@ -124,8 +149,12 @@ impl Torrent {
         &self.info_hash
     }
 
-    pub fn peer_list(&self) -> &[Peer] {
-        &self.peer_list
+    pub async fn peer_list(&self) -> Vec<Peer> {
+        let tracker = Arc::clone(&self.tracker_session);
+
+        let session = tracker.lock().await;
+
+        session.peer_list.clone()
     }
 
     pub fn get_file_tree(&self) -> Result<files::FileEntry, anyhow::Error> {

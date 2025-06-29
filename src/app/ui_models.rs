@@ -11,17 +11,15 @@ pub struct TorrentItem {
     pub files: FileEntry,
 }
 
-impl TryFrom<&Torrent> for TorrentItem {
-    type Error = anyhow::Error;
-
-    fn try_from(t: &Torrent) -> Result<Self, Self::Error> {
+impl TorrentItem {
+    pub async fn try_from_torrent(t: &Torrent) -> Result<Self, anyhow::Error> {
         Ok(TorrentItem {
             name: String::from(t.name()),
             progress: 0.0,
             status: String::from("Stopped"),
             download_speed: String::from("0.0kb/s"),
             info_hash: String::from(t.info_hash()),
-            peer_list: t.peer_list().to_vec(),
+            peer_list: t.peer_list().await.to_vec(),
             files: t.get_file_tree()?,
         })
     }
