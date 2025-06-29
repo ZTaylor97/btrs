@@ -2,16 +2,15 @@ use std::{collections::VecDeque, sync::Arc, time::Duration};
 
 use anyhow::bail;
 use bytes::BytesMut;
-use ratatui::widgets::Block;
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncReadExt, AsyncWriteExt},
     net::{
-        TcpListener, TcpStream,
+        TcpStream,
         tcp::{OwnedReadHalf, OwnedWriteHalf},
     },
     sync::{
         Mutex,
-        mpsc::{Receiver, Sender, channel},
+        mpsc::{Sender, channel},
     },
 };
 
@@ -30,8 +29,6 @@ pub struct PeerSession {
     info_hash: [u8; 20],
     url: String,
     peer_state: Arc<Mutex<PeerState>>,
-    piece_request_rx: Arc<Mutex<VecDeque<PieceRequest>>>,
-    piece_request_tx: Sender<PieceResponse>,
 }
 
 pub struct PeerState {
@@ -47,8 +44,6 @@ impl PeerSession {
         url: &str,
         peer_id: [u8; 20],
         info_hash: [u8; 20],
-        piece_request_rx: Arc<Mutex<VecDeque<PieceRequest>>>,
-        piece_request_tx: Sender<PieceResponse>,
     ) -> Result<Self, anyhow::Error> {
         let peer_state = PeerState {
             is_choked: true,
@@ -63,8 +58,6 @@ impl PeerSession {
             info_hash,
             url: String::from(url),
             peer_state: Arc::new(Mutex::new(peer_state)),
-            piece_request_rx,
-            piece_request_tx,
         })
     }
 
@@ -94,7 +87,11 @@ impl PeerSession {
         Ok(response_bytes)
     }
 
-    pub async fn start(&mut self) -> Result<(), anyhow::Error> {
+    pub async fn start(
+        &mut self,
+        piece_request_rx: Arc<Mutex<VecDeque<PieceRequest>>>,
+        piece_request_tx: Sender<PieceResponse>,
+    ) -> Result<(), anyhow::Error> {
         let (block_tx, mut block_rx) = channel::<BlockResponse>(100);
 
         let stream = TcpStream::connect(&self.url).await?;
@@ -113,10 +110,11 @@ impl PeerSession {
             );
         }
 
+        // Communicate intention to download from peer.
         Self::send_interested(&mut writer).await?;
         Self::send_unchoke(&mut writer).await?;
 
-        // Create locks for reader and writer streams
+        // Create locks for TCP reader and writer streams
         let reader = Arc::new(tokio::sync::Mutex::new(reader));
         let writer = Arc::new(tokio::sync::Mutex::new(writer));
 
@@ -149,7 +147,7 @@ impl PeerSession {
                             block,
                         } => {
                             // send to block manager task
-                            block_tx.try_send(BlockResponse {
+                            let result = block_tx.try_send(BlockResponse {
                                 index,
                                 begin,
                                 block,
@@ -171,8 +169,8 @@ impl PeerSession {
             }
         });
 
-        let piece_queue = self.piece_request_rx.clone();
-        let piece_tx = self.piece_request_tx.clone();
+        let piece_queue = piece_request_rx.clone();
+        let piece_tx = piece_request_tx.clone();
 
         // Block manager and requester task
         tokio::spawn(async move {
@@ -221,16 +219,18 @@ impl PeerSession {
                         .blocks
                         .iter_mut()
                         .filter(|block| block.status == BlockStatus::Empty)
-                        .take(5)
+                        .take(max_in_flight)
                         .map(|block| {
                             block.status = BlockStatus::InProgress;
                             block
                         })
                         .collect();
 
-                    // TODO: Convert BlockInfo into Message::Request bytes for sending requests in batches.
-                    for block in next_blocks {
-                        Self::send_request(writer);
+                    let mut writer = writer.lock().await;
+                    let resp = Self::send_request(&mut writer, work.index, &next_blocks).await;
+
+                    if let Err(e) = resp {
+                        eprintln!("{e}");
                     }
 
                     // Give ownership back if work not complete yet
@@ -283,20 +283,24 @@ impl PeerSession {
 
     pub async fn send_request(
         writer: &mut OwnedWriteHalf,
-        index: u32,
-        begin: u32,
-        length: u32,
+        piece_index: u32,
+        blocks: &[&mut BlockInfo],
     ) -> Result<(), anyhow::Error> {
-        let request_bytes = MessageType::Request {
-            index,
-            begin,
-            length,
-        }
-        .to_bytes();
+        let bytes: Vec<u8> = blocks
+            .iter()
+            .flat_map(|block| {
+                MessageType::Request {
+                    index: piece_index,
+                    begin: block.offset,
+                    length: block.length,
+                }
+                .to_bytes()
+            })
+            .collect();
 
         writer.writable().await?;
 
-        writer.write_all(&request_bytes).await?;
+        writer.write_all(&bytes).await?;
 
         Ok(())
     }
@@ -363,12 +367,16 @@ mod peer_session_tests {
 
     #[tokio::test]
     pub async fn real_test() {
+        // This is the info hash for the A_Little_Princess torrent from the Internet_Archive
         let info_hash = [
             0x57, 0x96, 0xd3, 0x3f, 0xda, 0x21, 0x68, 0x48, 0x68, 0x28, 0x67, 0x8f, 0x75, 0x40,
             0xf1, 0xaf, 0x72, 0xdb, 0x4a, 0x37,
         ];
 
         let port = 6137;
+
+        let piece_request_rx = Arc::new(Mutex::new(VecDeque::new()));
+        let (piece_request_tx, mut piece_requester_rx) = channel::<PieceResponse>(100);
 
         // Connect to another client hosting the torrent locally for testing.
         let mut peer_session =
@@ -379,6 +387,25 @@ mod peer_session_tests {
         let num_pieces: u32 = 2021;
         let piece_length: u32 = 2048 * 1024;
 
-        peer_session.start().await.unwrap();
+        peer_session
+            .start(piece_request_rx.clone(), piece_request_tx)
+            .await
+            .unwrap();
+
+        for i in 0..num_pieces {
+            let mut queue = piece_request_rx.lock().await;
+
+            queue.push_back(PieceRequest {
+                piece_index: i,
+                length_bytes: piece_length as usize,
+            });
+        }
+
+        loop {
+            let piece_response = piece_requester_rx.recv().await;
+            if let Some(resp) = piece_response {
+                println!("{:?}", resp.result.unwrap().len());
+            }
+        }
     }
 }

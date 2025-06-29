@@ -23,6 +23,7 @@ impl PieceManager {
         Self {
             work_queue,
             results,
+            piece_metadata: vec![],
         }
     }
 
@@ -34,16 +35,18 @@ impl PieceManager {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct PieceRequest {
     pub piece_index: u32,
     pub length_bytes: usize,
 }
 
+#[derive(Debug, Clone)]
 pub struct PieceResponse {
     pub piece_index: u32,
     pub result: Result<Vec<u8>, PieceError>,
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum PieceError {
     Timeout,
     InvalidData(String),
