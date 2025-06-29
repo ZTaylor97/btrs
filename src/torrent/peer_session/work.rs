@@ -1,6 +1,8 @@
 use crate::torrent::piece_manager::{PieceError, PieceRequest, PieceResponse};
 
 const BLOCK_SIZE: usize = 16 * 1024;
+
+#[derive(Debug, Clone)]
 pub struct BlockInfo {
     pub offset: u32,
     pub length: u32,
@@ -68,7 +70,6 @@ impl PieceWork {
             .all(|block| block.status == BlockStatus::Full)
     }
 
-    // TODO implement
     pub fn to_piece_response(self) -> PieceResponse {
         let bytes: Vec<u8> = self
             .blocks

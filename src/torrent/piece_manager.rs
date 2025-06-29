@@ -52,4 +52,5 @@ pub enum PieceError {
     InvalidData(String),
     PeerChoked,
     ConnectionLost,
+    PieceUnavailable,
 }
