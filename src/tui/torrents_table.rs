@@ -3,7 +3,7 @@ use ratatui::{
     widgets::{Block, Borders, Cell, HighlightSpacing, Row, Table, TableState},
 };
 
-use crate::app::ui_models::TorrentItem; // adjust as needed
+use crate::app::ui_models::TorrentItem;
 
 pub struct TorrentsTable {
     pub selected: usize,

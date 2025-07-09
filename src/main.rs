@@ -78,7 +78,7 @@ async fn run_app<B: Backend>(
             AppEvent::Custom(AppEventType::Download(key)) => app.download_torrent(&key).await?,
             AppEvent::Custom(AppEventType::Exit) => break,
         }
-        let torrent_items = app.torrent_items()?;
+        let torrent_items = app.torrent_items().await?;
         terminal.draw(|f| tui.draw(f, &torrent_items))?;
     }
 
