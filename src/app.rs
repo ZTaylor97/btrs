@@ -14,7 +14,7 @@ pub enum CurrentScreen {
 }
 
 pub struct App {
-    torrents: BTreeMap<String, Torrent>,
+    torrents: BTreeMap<[u8; 20], Torrent>,
     pub peer_id: String,
 }
 
@@ -58,11 +58,12 @@ impl App {
 
     pub fn tick(&mut self) {}
 
+    // TODO: The torrent selection logic using the info_hash will need to be changed. Might have to generate my own IDs that are more friendly to use.
     pub async fn download_torrent(&mut self, selected: &str) -> Result<(), Error> {
         self.torrents
             .get_mut(selected)
             .ok_or(anyhow!("Element not found"))?
-            .start_tracker();
+            .start();
 
         Ok(())
     }

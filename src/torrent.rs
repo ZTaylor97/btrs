@@ -2,17 +2,22 @@
 //! torrent client, including loading METAINFO and
 //! making requests to trackers.
 
+use std::collections::{BTreeMap, VecDeque};
 use std::{net::Ipv4Addr, sync::Arc};
 
 use anyhow::{Context, Error};
 use serde_bencode::value::Value;
 use sha1::{Digest, Sha1};
 use tokio::sync::Mutex;
+use tokio::sync::mpsc::channel;
+use tokio::task::JoinHandle;
 use tokio::time::{Duration, Instant};
 use urlencoding::encode_binary;
 
 use metainfo::MetaInfo;
 
+use crate::torrent::peer_session::PeerSession;
+use crate::torrent::piece_manager::{PieceManager, PieceResponse};
 use crate::torrent::{
     metainfo::info::InfoEnum,
     tracker::{PeersEnum, TrackerSession},
@@ -25,12 +30,11 @@ mod piece_manager;
 pub mod tracker;
 pub struct Torrent {
     metainfo: MetaInfo,
-    info_hash: String,
-    tracker_session: Arc<Mutex<TrackerSession>>, // TODO: PieceStorage
-                                                 // TODO: Vec<PeerSession>
+    info_hash: [u8; 20],
+    tracker_session: Arc<Mutex<TrackerSession>>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Peer {
     pub ip: String,
     pub port: u64,
@@ -68,11 +72,12 @@ impl Torrent {
         let metainfo = MetaInfo::from_bytes(&bytes)?;
         let info_hash = Self::calculate_info_hash(&bytes)?;
 
+        // TODO: persist info hash being non urlencoded bytes.
         let tracker_session = TrackerSession::new(&metainfo, &info_hash, peer_id);
 
         Ok(Self {
             metainfo,
-            info_hash: String::from(info_hash),
+            info_hash: info_hash,
             tracker_session: Arc::new(Mutex::new(tracker_session)),
         })
     }
@@ -84,7 +89,7 @@ impl Torrent {
     ///     - bytes are not valid bencode,
     ///     - info key is missing from bencode,
     ///     - an error happens converting back to bytes
-    fn calculate_info_hash(bytes: &[u8]) -> Result<String, Error> {
+    fn calculate_info_hash(bytes: &[u8]) -> Result<[u8; 20], Error> {
         let value: Value = serde_bencode::from_bytes(&bytes)
             .context("Failed to decode .torrent file as bencode")?;
 
@@ -102,12 +107,11 @@ impl Torrent {
         hasher.update(&info_bytes);
         let hash = hasher.finalize();
 
-        Ok(encode_binary(&hash).into_owned())
+        Ok(hash.try_into()?)
     }
 
-    pub fn start_tracker(&mut self) {
-        let tracker = Arc::clone(&self.tracker_session);
-
+    pub fn start(&mut self) {
+        let tracker = self.tracker_session.clone();
         tokio::spawn(async move {
             {
                 let mut session = tracker.lock().await;
@@ -118,6 +122,7 @@ impl Torrent {
                 session.started = true;
             }
             loop {
+                // Ensure tracker session lock is only held as long as necessary
                 let wait_time = {
                     let mut session = tracker.lock().await;
                     session.started = true;
@@ -136,6 +141,83 @@ impl Torrent {
                 tokio::time::sleep_until(wait_time).await;
             }
         });
+
+        let work_queue = Arc::new(Mutex::new(VecDeque::new()));
+
+        let (result_sender, result_receiver) = channel::<PieceResponse>(100);
+
+        let piece_manager_work_queue = work_queue.clone();
+        // Start piece manager
+        tokio::spawn(async move {
+            PieceManager::new(piece_manager_work_queue, result_receiver)
+                .run()
+                .await
+        });
+
+        let tracker = self.tracker_session.clone();
+
+        // Start managing peer sessions
+        let active_peers_lock: Arc<Mutex<BTreeMap<Peer, JoinHandle<()>>>> =
+            Arc::new(Mutex::new(BTreeMap::new()));
+
+        let info_hash = self.info_hash.clone();
+
+        let peer_session_manager_work_queue = work_queue.clone();
+        tokio::spawn(async move {
+            // TODO: Move to configuration
+            let max_peers = 10;
+            loop {
+                let mut active_peers = active_peers_lock.lock().await;
+                let (known_peers, client_id) = {
+                    let temp_tracker = tracker.lock().await;
+
+                    (temp_tracker.peer_list.clone(), temp_tracker.peer_id.clone())
+                };
+
+                // Remove completed peer sessions
+                let mut to_remove = vec![];
+                for (peer, handle) in active_peers.iter() {
+                    if handle.is_finished() {
+                        to_remove.push(peer.clone())
+                    }
+                }
+                for add in to_remove {
+                    active_peers.remove(&add);
+                }
+
+                // TODO: Fix spaghetti, especially all the clones, unwraps, expects.
+
+                // Only add new peers if we need to.
+                if active_peers.len() < max_peers {
+                    // TODO: Error handling
+                    for peer in known_peers {
+                        if !active_peers.contains_key(&peer) {
+                            let mut peer_session = PeerSession::new(
+                                &format!("{}:{}", peer.ip, peer.port),
+                                client_id
+                                    .as_bytes()
+                                    .try_into()
+                                    .expect("Failed to convert client id to bytes"),
+                                info_hash.clone(),
+                            )
+                            .await;
+
+                            let queue = peer_session_manager_work_queue.clone();
+                            let piece_sender = result_sender.clone();
+                            let handle = tokio::spawn(async move {
+                                peer_session.start(queue, piece_sender).await;
+                            });
+
+                            active_peers.insert(peer.clone(), handle);
+                        }
+                    }
+                }
+
+                // Start new peer sessions etc infrequently
+                // TODO: Move sleep time to configuration
+                tokio::time::sleep(Duration::from_secs(10)).await;
+            }
+        });
     }
 
     pub fn name(&self) -> &str {
@@ -145,7 +227,7 @@ impl Torrent {
         }
     }
 
-    pub fn info_hash(&self) -> &str {
+    pub fn info_hash(&self) -> &[u8] {
         &self.info_hash
     }
 

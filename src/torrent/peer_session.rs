@@ -52,11 +52,7 @@ impl PeerState {
 }
 
 impl PeerSession {
-    pub async fn new(
-        url: &str,
-        peer_id: [u8; 20],
-        info_hash: [u8; 20],
-    ) -> Result<PeerSession, anyhow::Error> {
+    pub async fn new(url: &str, peer_id: [u8; 20], info_hash: [u8; 20]) -> PeerSession {
         let peer_state = PeerState {
             is_choked: true,
             is_choking: true,
@@ -65,12 +61,12 @@ impl PeerSession {
             bitfield: vec![],
         };
 
-        Ok(PeerSession {
+        PeerSession {
             peer_id,
             info_hash,
             url: String::from(url),
             peer_state: Arc::new(Mutex::new(peer_state)),
-        })
+        }
     }
 
     pub async fn send_handshake(
@@ -397,9 +393,7 @@ mod peer_session_tests {
         start_mock_peer_server(port).await;
 
         let peer_session =
-            PeerSession::new(&format!("127.0.0.1:{port}"), MOCK_CLIENT_ID, MOCK_INFO_HASH)
-                .await
-                .unwrap();
+            PeerSession::new(&format!("127.0.0.1:{port}"), MOCK_CLIENT_ID, MOCK_INFO_HASH).await;
 
         let stream = TcpStream::connect(&peer_session.url).await.unwrap();
         let (mut reader, mut writer) = stream.into_split();
@@ -429,9 +423,7 @@ mod peer_session_tests {
 
         // Connect to another client hosting the torrent locally for testing.
         let mut peer_session =
-            PeerSession::new(&format!("127.0.0.1:{port}"), MOCK_CLIENT_ID, info_hash)
-                .await
-                .unwrap();
+            PeerSession::new(&format!("127.0.0.1:{port}"), MOCK_CLIENT_ID, info_hash).await;
 
         peer_session
             .start(piece_request_rx.clone(), piece_request_tx)
