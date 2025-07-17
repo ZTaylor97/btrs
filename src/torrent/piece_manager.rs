@@ -28,9 +28,31 @@ impl PieceManager {
     }
 
     pub async fn run(&mut self) {
+        let num_pieces: u32 = 2021;
+        let piece_length: u32 = 2048 * 1024;
+
+        {
+            let mut queue = self.work_queue.lock().await;
+
+            for i in 0..num_pieces {
+                queue.push_back(PieceRequest {
+                    piece_index: i,
+                    length_bytes: piece_length as usize,
+                });
+            }
+        }
+
         // Receive completed pieces
         while let Some(result) = self.results.recv().await {
-            println!("Got piece: {:?}", result.piece_index);
+            // Add piece back to queue if peer session returns an error while working on that piece.
+            if let Err(piece_error) = result.result {
+                let mut queue = self.work_queue.lock().await;
+
+                queue.push_front(PieceRequest {
+                    piece_index: result.piece_index,
+                    length_bytes: piece_length as usize,
+                });
+            }
         }
     }
 }

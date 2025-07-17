@@ -73,7 +73,8 @@ impl Torrent {
         let info_hash = Self::calculate_info_hash(&bytes)?;
 
         // TODO: persist info hash being non urlencoded bytes.
-        let tracker_session = TrackerSession::new(&metainfo, &info_hash, peer_id);
+        let tracker_session =
+            TrackerSession::new(&metainfo, &encode_binary(&info_hash).into_owned(), peer_id);
 
         Ok(Self {
             metainfo,
@@ -110,6 +111,7 @@ impl Torrent {
         Ok(hash.try_into()?)
     }
 
+    // TODO: God your variable names are atrocious. Please fix this shit.
     pub fn start(&mut self) {
         let tracker = self.tracker_session.clone();
         tokio::spawn(async move {
@@ -227,7 +229,7 @@ impl Torrent {
         }
     }
 
-    pub fn info_hash(&self) -> &[u8] {
+    pub fn info_hash(&self) -> &[u8; 20] {
         &self.info_hash
     }
 

@@ -45,9 +45,11 @@ impl PeerState {
         let bit_offset = 7 - (piece_index % 8); // assume Big Endian bytes
         let byte_offset = piece_index / 8;
 
-        let byte = self.bitfield[byte_offset];
-
-        byte & (1 << bit_offset) != 0
+        if let Some(byte) = self.bitfield.get(byte_offset) {
+            byte & (1 << bit_offset) != 0
+        } else {
+            false
+        }
     }
 }
 

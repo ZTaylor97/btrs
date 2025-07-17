@@ -23,7 +23,7 @@ pub enum AppEvent {
 
 #[derive(Debug)]
 pub enum AppEventType {
-    Download(String),
+    Download([u8; 20]),
     Exit,
 }
 
@@ -75,7 +75,7 @@ async fn run_app<B: Backend>(
                 }
                 _ => {}
             },
-            AppEvent::Custom(AppEventType::Download(key)) => app.download_torrent(&key).await?,
+            AppEvent::Custom(AppEventType::Download(key)) => app.download_torrent(key).await?,
             AppEvent::Custom(AppEventType::Exit) => break,
         }
         let torrent_items = app.torrent_items().await?;

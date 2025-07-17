@@ -51,7 +51,7 @@ impl App {
 
         let torrent = Torrent::load(&bytes, &self.peer_id)?;
 
-        self.torrents.insert(torrent.info_hash().into(), torrent);
+        self.torrents.insert(torrent.info_hash().clone(), torrent);
 
         Ok(())
     }
@@ -59,9 +59,9 @@ impl App {
     pub fn tick(&mut self) {}
 
     // TODO: The torrent selection logic using the info_hash will need to be changed. Might have to generate my own IDs that are more friendly to use.
-    pub async fn download_torrent(&mut self, selected: &str) -> Result<(), Error> {
+    pub async fn download_torrent(&mut self, selected: [u8; 20]) -> Result<(), Error> {
         self.torrents
-            .get_mut(selected)
+            .get_mut(&selected)
             .ok_or(anyhow!("Element not found"))?
             .start();
 

@@ -28,16 +28,11 @@ impl TorrentsTable {
                 Row::new(vec![
                     Cell::from(t.name.clone()),
                     Cell::from(t.status.clone()),
-                    Cell::from(t.info_hash.clone()),
                 ])
             })
             .collect();
 
-        let widths = [
-            Constraint::Percentage(40),
-            Constraint::Percentage(30),
-            Constraint::Percentage(30),
-        ];
+        let widths = [Constraint::Percentage(50), Constraint::Percentage(50)];
 
         let mut table = Table::new(rows, widths)
             .header(header)

@@ -6,7 +6,7 @@ pub struct TorrentItem {
     pub progress: f64,
     pub status: String,
     pub download_speed: String,
-    pub info_hash: String,
+    pub info_hash: [u8; 20],
     pub peer_list: Vec<Peer>,
     pub files: FileEntry,
 }
@@ -18,7 +18,7 @@ impl TorrentItem {
             progress: 0.0,
             status: String::from("Stopped"),
             download_speed: String::from("0.0kb/s"),
-            info_hash: String::from(t.info_hash()),
+            info_hash: t.info_hash().clone(),
             peer_list: t.peer_list().await.to_vec(),
             files: t.get_file_tree()?,
         })
