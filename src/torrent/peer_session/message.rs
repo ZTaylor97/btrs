@@ -1,6 +1,18 @@
 use anyhow::bail;
 use bytes::{Buf, BytesMut};
 
+const MSG_CHOKE: u8 = 0;
+const MSG_UNCHOKE: u8 = 1;
+const MSG_INTERESTED: u8 = 2;
+const MSG_NOT_INTERESTED: u8 = 3;
+const MSG_HAVE: u8 = 4;
+const MSG_BITFIELD: u8 = 5;
+const MSG_REQUEST: u8 = 6;
+const MSG_PIECE: u8 = 7;
+const MSG_CANCEL: u8 = 8;
+const MSG_PORT: u8 = 9;
+
+/// Represents the peer protocol Message type for serializing and deserializing.
 #[derive(Clone, PartialEq, Debug)]
 pub enum MessageType {
     Choke,
@@ -29,39 +41,41 @@ pub enum MessageType {
 }
 
 impl MessageType {
+    /// Extract a peer protocol message from the bytes read from a peer.
     pub fn from_bytes(bytes: &mut BytesMut, id: u8, len: u32) -> Result<Self, anyhow::Error> {
         if bytes.len() < 4 {
             bail!("Message {bytes:?} invalid");
         }
 
-        let message_length = bytes.get_u32();
+        let message_length = bytes.try_get_u32()?;
         if message_length == 0 {
             return Ok(Self::KeepAlive);
         }
 
         if bytes.len() < message_length as usize {
-            bail!("Message {bytes:?} has less than")
+            bail!("Message {bytes:?} has less than length {message_length} bytes")
         }
 
-        let idx = bytes.get_u8();
+        let idx = bytes.try_get_u8()?;
 
         Ok(match idx {
-            0 => Self::Choke,
-            1 => Self::Unchoke,
-            2 => Self::Interested,
-            3 => Self::NotInterested,
-            4 => {
-                let index = bytes.get_u32();
+            MSG_CHOKE => Self::Choke,
+            MSG_UNCHOKE => Self::Unchoke,
+            MSG_INTERESTED => Self::Interested,
+            MSG_NOT_INTERESTED => Self::NotInterested,
+            MSG_HAVE => {
+                let index = bytes.try_get_u32()?;
                 Self::Have(index)
             }
-            5 => {
-                let bitfield = bytes[..(len as usize - 1)].to_vec();
+            MSG_BITFIELD => {
+                // 1 byte has already been requested from bytes so take length - 1 bytes.
+                let bitfield = bytes.split_to(len as usize - 1).to_vec();
                 Self::Bitfield(bitfield)
             }
-            6 => {
-                let index = bytes.get_u32();
-                let begin = bytes.get_u32();
-                let length = bytes.get_u32();
+            MSG_REQUEST => {
+                let index = bytes.try_get_u32()?;
+                let begin = bytes.try_get_u32()?;
+                let length = bytes.try_get_u32()?;
 
                 Self::Request {
                     index,
@@ -69,10 +83,11 @@ impl MessageType {
                     length,
                 }
             }
-            7 => {
-                let index = bytes.get_u32();
-                let begin = bytes.get_u32();
-                let block = bytes[..(len as usize - 9)].to_vec();
+            MSG_PIECE => {
+                let index = bytes.try_get_u32()?;
+                let begin = bytes.try_get_u32()?;
+                // 9 bytes (1 + 4 + 4) have already been taken from bytes so take length - 9 bytes.
+                let block = bytes.split_to(len as usize - 9).to_vec();
 
                 Self::Piece {
                     index,
@@ -80,10 +95,10 @@ impl MessageType {
                     block,
                 }
             }
-            8 => {
-                let index = bytes.get_u32();
-                let begin = bytes.get_u32();
-                let length = bytes.get_u32();
+            MSG_CANCEL => {
+                let index = bytes.try_get_u32()?;
+                let begin = bytes.try_get_u32()?;
+                let length = bytes.try_get_u32()?;
 
                 Self::Cancel {
                     index,
@@ -91,43 +106,50 @@ impl MessageType {
                     length,
                 }
             }
-            9 => {
-                let port = bytes.get_u16();
+            MSG_PORT => {
+                let port = bytes.try_get_u16()?;
                 Self::Port(port)
             }
             _ => bail!("Invalid message id {id}"),
         })
     }
 
+    /// Serialize a peer protocol message into bytes to send across the wire to a listener.
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut message: Vec<u8> = vec![];
 
         match self {
             MessageType::Choke => {
+                // Choke message has a fixed length of 1 byte from the message index.
                 message.extend_from_slice(&1u32.to_be_bytes());
-                message.push(0u8);
+                message.push(MSG_CHOKE);
             }
             MessageType::Unchoke => {
+                // Unchoke message has a fixed length of 1 byte from the message index.
                 message.extend_from_slice(&1u32.to_be_bytes());
-                message.push(1u8);
+                message.push(MSG_UNCHOKE);
             }
             MessageType::Interested => {
+                // Interested message has a fixed length of 1 byte from the message index.
                 message.extend_from_slice(&1u32.to_be_bytes());
-                message.push(2u8);
+                message.push(MSG_INTERESTED);
             }
             MessageType::NotInterested => {
+                // NotInterested message has a fixed length of 1 byte from the message index.
                 message.extend_from_slice(&1u32.to_be_bytes());
-                message.push(3u8);
+                message.push(MSG_NOT_INTERESTED);
             }
             MessageType::Have(idx) => {
+                // Have messages have a fixed length of 5 bytes, 4 for the piece index and 1 for the message index.
                 message.extend_from_slice(&5u32.to_be_bytes());
-                message.push(4u8);
+                message.push(MSG_HAVE);
                 message.extend_from_slice(&idx.to_be_bytes());
             }
             MessageType::Bitfield(items) => {
+                // other clients will expect that len is indexed from 1 not 0.
                 let len: u32 = items.len() as u32 + 1;
                 message.extend_from_slice(&len.to_be_bytes());
-                message.push(5u8);
+                message.push(MSG_BITFIELD);
                 message.extend(items);
             }
             MessageType::Request {
@@ -135,8 +157,9 @@ impl MessageType {
                 begin,
                 length,
             } => {
+                // Request has a fixed length of 13 bytes 4 for each of the u32s which are index, begin, and length. and one for the message index.
                 message.extend_from_slice(&13u32.to_be_bytes());
-                message.push(6u8);
+                message.push(MSG_REQUEST);
                 message.extend_from_slice(&index.to_be_bytes());
                 message.extend_from_slice(&begin.to_be_bytes());
                 message.extend_from_slice(&length.to_be_bytes());
@@ -146,9 +169,10 @@ impl MessageType {
                 begin,
                 block,
             } => {
+                // Piece has a variable length of 9 from the index, begin, and message index + the length of the block.
                 let len: u32 = 9 + block.len() as u32;
                 message.extend_from_slice(&len.to_be_bytes());
-                message.push(7u8);
+                message.push(MSG_PIECE);
                 message.extend_from_slice(&index.to_be_bytes());
                 message.extend_from_slice(&begin.to_be_bytes());
                 message.extend(block);
@@ -158,15 +182,17 @@ impl MessageType {
                 begin,
                 length,
             } => {
+                // Request has a fixed length of 13 bytes 4 for each of the u32s which are index, begin, and length. and one for the message index.
                 message.extend_from_slice(&13u32.to_be_bytes());
-                message.push(8u8);
+                message.push(MSG_CANCEL);
                 message.extend_from_slice(&index.to_be_bytes());
                 message.extend_from_slice(&begin.to_be_bytes());
                 message.extend_from_slice(&length.to_be_bytes());
             }
             MessageType::Port(port) => {
+                // Request has a fixed length of 3 bytes 4 for each of the u32s which are index, begin, and length. and one for the message index.
                 message.extend_from_slice(&3u32.to_be_bytes());
-                message.push(9u8);
+                message.push(MSG_PORT);
                 message.extend_from_slice(&port.to_be_bytes());
             }
             MessageType::KeepAlive => message.extend_from_slice(&0u32.to_be_bytes()),

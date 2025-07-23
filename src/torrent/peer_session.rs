@@ -24,6 +24,8 @@ use crate::torrent::piece_manager::{PieceError, PieceRequest, PieceResponse};
 
 const PSTR: &[u8; 19] = b"BitTorrent protocol";
 
+/// Defines a connection to a Peer found from a tracker.
+/// Manages reading and writing to the peer to fetch and serve pieces.
 pub struct PeerSession {
     peer_id: [u8; 20],
     info_hash: [u8; 20],
@@ -31,6 +33,7 @@ pub struct PeerSession {
     peer_state: Arc<Mutex<PeerState>>,
 }
 
+/// Encapsulates the mutable state of a given Peer.
 #[derive(Clone, Debug)]
 pub struct PeerState {
     pub is_choked: bool,
@@ -71,6 +74,7 @@ impl PeerSession {
         }
     }
 
+    // TODO: Refactor somewhere else
     pub async fn send_handshake(
         writer: &mut OwnedWriteHalf,
         info_hash: &[u8; 20],
@@ -89,6 +93,7 @@ impl PeerSession {
         Ok(())
     }
 
+    // TODO: Refactor somewhere else
     pub async fn read_handshake(reader: &mut OwnedReadHalf) -> Result<[u8; 68], anyhow::Error> {
         let mut response_bytes = [0u8; 68];
         reader.readable().await?;
@@ -97,6 +102,8 @@ impl PeerSession {
         Ok(response_bytes)
     }
 
+    // TODO: I feel like these tasks need rethinking in terms of module ownership, reusability for incoming TcpSessions not just ones that I initiate.
+    /// Initalize peer connection, start the peer session requester and listener async tasks and plumb them with the PieceManager.
     pub async fn start(
         &mut self,
         piece_request_rx: Arc<Mutex<VecDeque<PieceRequest>>>,
@@ -144,6 +151,7 @@ impl PeerSession {
         Ok(())
     }
 
+    /// Get work from PieceManager, send requests to the peer, receive blocks from the peer_listener.
     async fn peer_requester(
         peer_state: Arc<Mutex<PeerState>>,
         piece_queue: Arc<Mutex<VecDeque<PieceRequest>>>,
@@ -206,7 +214,6 @@ impl PeerSession {
                 }
 
                 // Only send requests if not choked.
-
                 if !state.is_choked {
                     // Get next 5 blocks (if there are 5 to get) and make requests to peer
                     let next_blocks: Vec<&mut BlockInfo> = work
@@ -238,6 +245,7 @@ impl PeerSession {
         }
     }
 
+    /// Listen to incoming data coming from the Peer, change peer state or send data elsewhere to be handled as needed.
     async fn peer_listener(
         peer_state: Arc<Mutex<PeerState>>,
         reader: Arc<Mutex<OwnedReadHalf>>,
@@ -267,7 +275,8 @@ impl PeerSession {
                         begin,
                         block,
                     } => {
-                        // TODO: Handle errors correctly
+                        // TODO: Handle errors correctly, this failing should not kill the task.
+
                         // send to block manager task
                         block_tx.try_send(BlockResponse {
                             index,
@@ -291,6 +300,7 @@ impl PeerSession {
         }
     }
 
+    // TODO: Refactor/ reorganize all of these message send/read functions. They're loose utilities at the moment and seem out of place here.
     pub async fn read_message(reader: &mut OwnedReadHalf) -> Result<MessageType, anyhow::Error> {
         reader.readable().await?;
 

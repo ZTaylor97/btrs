@@ -33,13 +33,11 @@ impl PieceManager {
 
         {
             let mut queue = self.work_queue.lock().await;
-
-            for i in 0..num_pieces {
-                queue.push_back(PieceRequest {
-                    piece_index: i,
-                    length_bytes: piece_length as usize,
-                });
-            }
+            queue.reserve(num_pieces as usize);
+            queue.extend((0..num_pieces).map(|i| PieceRequest {
+                piece_index: i,
+                length_bytes: piece_length as usize,
+            }));
         }
 
         // Receive completed pieces
