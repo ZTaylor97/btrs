@@ -106,13 +106,14 @@ impl PeerSession {
     /// Initalize peer connection, start the peer session requester and listener async tasks and plumb them with the PieceManager.
     pub async fn start(
         &mut self,
+        tcp_stream: TcpStream,
         piece_request_rx: Arc<Mutex<VecDeque<PieceRequest>>>,
         piece_request_tx: Sender<PieceResult>,
     ) -> Result<(), anyhow::Error> {
         let (block_tx, block_rx) = channel::<BlockResponse>(100);
 
-        let stream = TcpStream::connect(&self.url).await?;
-        let (mut reader, mut writer) = stream.into_split();
+
+        let (mut reader, mut writer) = tcp_stream.into_split();
 
         PeerSession::send_handshake(&mut writer, &self.info_hash, &self.peer_id).await?;
         let handshake_response = PeerSession::read_handshake(&mut reader).await?;
@@ -254,7 +255,7 @@ impl PeerSession {
         loop {
             let msg = {
                 let mut reader = reader.lock().await;
-                PeerSession::read_message(&mut reader).await.unwrap()
+                PeerSession::read_message(&mut reader).await?
             };
             {
                 let mut state = peer_state.lock().await;
@@ -437,8 +438,10 @@ mod peer_session_tests {
         let mut peer_session =
             PeerSession::new(&format!("127.0.0.1:{port}"), MOCK_CLIENT_ID, info_hash).await;
 
+        let tcp_stream = TcpStream::connect(&format!("127.0.0.1:{port}")).await.unwrap();
+
         peer_session
-            .start(piece_request_rx.clone(), piece_request_tx)
+            .start(tcp_stream, piece_request_rx.clone(), piece_request_tx)
             .await
             .unwrap();
 

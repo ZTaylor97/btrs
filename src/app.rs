@@ -42,6 +42,8 @@ impl App {
 
         app.add_torrent("test_files/A_Little_Princess_WB39_WOC_2001-07_archive.torrent")
             .unwrap();
+                app.add_torrent("test_files/ubuntu-24.04.2-desktop-amd64.iso.torrent")
+            .unwrap();
 
         app
     }

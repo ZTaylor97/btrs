@@ -3,7 +3,6 @@
 
 use std::fmt;
 use std::net::IpAddr;
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Deserializer};

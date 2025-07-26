@@ -9,14 +9,13 @@ use anyhow::{Context, Error};
 use serde_bencode::value::Value;
 use sha1::{Digest, Sha1};
 use tokio::sync::Mutex;
-use tokio::sync::mpsc::{Sender, channel};
-use tokio::task::JoinHandle;
+use tokio::sync::mpsc::channel;
 use tokio::time::{Duration, Instant};
 use urlencoding::encode_binary;
 
 use metainfo::MetaInfo;
 
-use crate::torrent::peer_session::PeerSession;
+use crate::torrent::peer_session_manager::PeerSessionManager;
 use crate::torrent::piece_manager::{PieceManager, PieceResult};
 use crate::torrent::{
     metainfo::info::InfoEnum,
@@ -28,6 +27,7 @@ pub mod metainfo;
 pub mod peer_session;
 mod piece_manager;
 pub mod tracker;
+mod peer_session_manager;
 
 pub struct Torrent {
     metainfo: MetaInfo,
@@ -39,14 +39,6 @@ pub struct Torrent {
 pub struct Peer {
     pub ip: String,
     pub port: u64,
-}
-
-pub struct PeerSessionManager {
-    piece_result_sender: Sender<PieceResult>,
-    tracker_lock: Arc<Mutex<TrackerSession>>,
-    active_peers_lock: Arc<Mutex<BTreeMap<Peer, JoinHandle<()>>>>,
-    info_hash: [u8; 20],
-    work_queue_lock: Arc<Mutex<VecDeque<piece_manager::PieceRequest>>>,
 }
 
 impl From<PeersEnum> for Vec<Peer> {
@@ -212,62 +204,3 @@ impl Torrent {
     }
 }
 
-impl PeerSessionManager {
-    async fn manage_peer_sessions(&mut self) -> ! {
-        // TODO: Move to configuration
-        let max_peers = 10;
-        let client_id = { self.tracker_lock.lock().await.peer_id.clone() };
-        let client_id_raw = client_id
-                                .as_bytes()
-                                .try_into()
-                                .expect("Failed to convert client id to bytes");
-        loop {
-            let mut active_peers = self.active_peers_lock.lock().await;
-            let known_peers = {
-                self.tracker_lock.lock().await.peer_list.clone()
-            };
-
-            // Remove completed peer sessions
-            let mut to_remove = vec![];
-            for (peer, handle) in active_peers.iter() {
-                if handle.is_finished() {
-                    to_remove.push(peer.clone())
-                }
-            }
-            for add in to_remove {
-                active_peers.remove(&add);
-            }
-
-            // TODO: Fix spaghetti, especially all the clones, unwraps, expects.
-
-            // Only add new peers if we need to.
-            if active_peers.len() < max_peers {
-                // TODO: Error handling
-                for peer in known_peers {
-                    if !active_peers.contains_key(&peer) {
-                        let mut peer_session = PeerSession::new(
-                            &format!("{}:{}", peer.ip, peer.port),
-                            client_id_raw,
-                            self.info_hash.clone(),
-                        )
-                        .await;
-
-                        let queue = self.work_queue_lock.clone();
-                        let piece_sender = self.piece_result_sender.clone();
-                        let handle = tokio::spawn(async move {
-                            if let Err(e) = peer_session.start(queue, piece_sender).await {
-                                eprintln!("Peer session failed unexpectedly: {e}")
-                            }
-                        });
-
-                        active_peers.insert(peer.clone(), handle);
-                    }
-                }
-            }
-
-            // Start new peer sessions etc infrequently
-            // TODO: Move sleep time to configuration
-            tokio::time::sleep(Duration::from_secs(10)).await;
-        }
-    }
-}
