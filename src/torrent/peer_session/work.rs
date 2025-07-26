@@ -1,4 +1,4 @@
-use crate::torrent::piece_manager::{PieceError, PieceRequest, PieceResponse};
+use crate::torrent::piece_manager::{PieceError, PieceRequest, PieceResult};
 
 const BLOCK_SIZE: usize = 16 * 1024;
 
@@ -79,7 +79,7 @@ impl PieceWork {
     }
 
     /// Convert the collection of blocks in the PieceWork into a flat byte buffer to send back to the PieceManager.
-    pub fn to_piece_response(self) -> PieceResponse {
+    pub fn to_piece_response(self) -> PieceResult {
         let bytes: Vec<u8> = self
             .blocks
             .into_iter()
@@ -88,14 +88,14 @@ impl PieceWork {
             .collect();
 
         if bytes.len() != self.length {
-            PieceResponse {
+            PieceResult {
                 piece_index: self.index,
                 result: Err(PieceError::InvalidData(String::from(
                     "piece data is malformed",
                 ))),
             }
         } else {
-            PieceResponse {
+            PieceResult {
                 piece_index: self.index,
                 result: Ok(bytes),
             }

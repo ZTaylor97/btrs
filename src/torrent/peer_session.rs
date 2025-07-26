@@ -20,7 +20,7 @@ mod work;
 use message::MessageType;
 use work::{BlockInfo, BlockResponse, BlockStatus, PieceWork};
 
-use crate::torrent::piece_manager::{PieceError, PieceRequest, PieceResponse};
+use crate::torrent::piece_manager::{PieceError, PieceRequest, PieceResult};
 
 const PSTR: &[u8; 19] = b"BitTorrent protocol";
 
@@ -107,7 +107,7 @@ impl PeerSession {
     pub async fn start(
         &mut self,
         piece_request_rx: Arc<Mutex<VecDeque<PieceRequest>>>,
-        piece_request_tx: Sender<PieceResponse>,
+        piece_request_tx: Sender<PieceResult>,
     ) -> Result<(), anyhow::Error> {
         let (block_tx, block_rx) = channel::<BlockResponse>(100);
 
@@ -155,7 +155,7 @@ impl PeerSession {
     async fn peer_requester(
         peer_state: Arc<Mutex<PeerState>>,
         piece_queue: Arc<Mutex<VecDeque<PieceRequest>>>,
-        piece_tx: Sender<PieceResponse>,
+        piece_tx: Sender<PieceResult>,
         writer: Arc<Mutex<OwnedWriteHalf>>,
         mut block_rx: Receiver<BlockResponse>,
     ) -> Result<(), anyhow::Error> {
@@ -176,7 +176,7 @@ impl PeerSession {
                     } else {
                         // Inform piece manager that piece is not available on this peer.
                         piece_tx
-                            .send(PieceResponse {
+                            .send(PieceResult {
                                 piece_index: piece_req.piece_index,
                                 result: Err(PieceError::PieceUnavailable),
                             })
@@ -431,7 +431,7 @@ mod peer_session_tests {
         let port = 6137;
 
         let piece_request_rx = Arc::new(Mutex::new(VecDeque::new()));
-        let (piece_request_tx, mut piece_requester_rx) = channel::<PieceResponse>(100);
+        let (piece_request_tx, mut piece_requester_rx) = channel::<PieceResult>(100);
 
         // Connect to another client hosting the torrent locally for testing.
         let mut peer_session =

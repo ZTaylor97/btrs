@@ -4,7 +4,7 @@ use tokio::sync::{Mutex, mpsc::Receiver};
 
 pub struct PieceManager {
     work_queue: Arc<Mutex<VecDeque<PieceRequest>>>,
-    results: Receiver<PieceResponse>,
+    results: Receiver<PieceResult>,
     piece_metadata: Vec<PieceMetadata>,
 }
 
@@ -18,7 +18,7 @@ pub struct PieceMetadata {
 impl PieceManager {
     pub fn new(
         work_queue: Arc<Mutex<VecDeque<PieceRequest>>>,
-        results: Receiver<PieceResponse>,
+        results: Receiver<PieceResult>,
     ) -> Self {
         Self {
             work_queue,
@@ -62,7 +62,7 @@ pub struct PieceRequest {
 }
 
 #[derive(Debug, Clone)]
-pub struct PieceResponse {
+pub struct PieceResult {
     pub piece_index: u32,
     pub result: Result<Vec<u8>, PieceError>,
 }
