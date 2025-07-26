@@ -23,7 +23,6 @@ pub enum BlockStatus {
 pub struct PieceWork {
     pub index: u32,
     pub length: usize,
-    pub block_size: usize,
     pub blocks: Vec<BlockInfo>,
 }
 
@@ -64,7 +63,6 @@ impl From<PieceRequest> for PieceWork {
         Self {
             index: value.piece_index,
             length: value.length_bytes,
-            block_size: BLOCK_SIZE,
             blocks,
         }
     }

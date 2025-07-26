@@ -53,12 +53,8 @@ impl PeerSessionManager {
             if active_peers.len() < max_peers {
                 for peer in known_peers {
                     if !active_peers.contains_key(&peer) {
-                        let mut peer_session = PeerSession::new(
-                            &format!("{}:{}", peer.ip, peer.port),
-                            client_id_raw,
-                            self.info_hash.clone(),
-                        )
-                        .await;
+                        let mut peer_session =
+                            PeerSession::new(client_id_raw, self.info_hash.clone()).await;
 
                         // TODO: Find better way to avoid connecting to self.
                         if peer.port == 6882 {

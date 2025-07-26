@@ -5,14 +5,6 @@ use tokio::sync::{Mutex, mpsc::Receiver};
 pub struct PieceManager {
     work_queue: Arc<Mutex<VecDeque<PieceRequest>>>,
     results: Receiver<PieceResult>,
-    piece_metadata: Vec<PieceMetadata>,
-}
-
-pub struct PieceMetadata {
-    pub index: u32,
-    pub hash: [u8; 20],
-    pub length: usize,
-    pub offset: usize,
 }
 
 impl PieceManager {
@@ -23,7 +15,6 @@ impl PieceManager {
         Self {
             work_queue,
             results,
-            piece_metadata: vec![],
         }
     }
 
@@ -43,7 +34,9 @@ impl PieceManager {
         // Receive completed pieces
         while let Some(result) = self.results.recv().await {
             // Add piece back to queue if peer session returns an error while working on that piece.
-            if let Err(piece_error) = result.result {
+
+            // TODO: log error
+            if let Err(_piece_error) = result.result {
                 let mut queue = self.work_queue.lock().await;
 
                 queue.push_front(PieceRequest {

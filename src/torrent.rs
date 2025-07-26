@@ -25,9 +25,9 @@ use crate::torrent::{
 pub mod files;
 pub mod metainfo;
 pub mod peer_session;
+mod peer_session_manager;
 mod piece_manager;
 pub mod tracker;
-mod peer_session_manager;
 
 pub struct Torrent {
     metainfo: MetaInfo,
@@ -72,8 +72,6 @@ impl Torrent {
     pub fn load(bytes: &[u8], peer_id: &str) -> Result<Self, Error> {
         let metainfo = MetaInfo::from_bytes(&bytes)?;
         let info_hash = Self::calculate_info_hash(&bytes)?;
-
-        // TODO: persist info hash being non urlencoded bytes.
         let tracker_session =
             TrackerSession::new(&metainfo, &encode_binary(&info_hash).into_owned(), peer_id);
 
@@ -203,4 +201,3 @@ impl Torrent {
         Ok(root)
     }
 }
-
