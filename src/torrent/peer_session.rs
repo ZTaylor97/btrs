@@ -134,7 +134,6 @@ impl PeerSession {
         .await?;
 
         // Start receiving messages from the peer.
-        let reader = Arc::new(Mutex::new(reader));
         let state_ref = self.peer_state.clone();
         let reader_handle =
             tokio::spawn(
@@ -145,7 +144,6 @@ impl PeerSession {
         let state_ref = self.peer_state.clone();
         let piece_queue = piece_request_rx.clone();
         let piece_tx = piece_request_tx.clone();
-        let writer = Arc::new(Mutex::new(writer));
         let writer_handle = tokio::spawn(async move {
             PeerSession::peer_requester(state_ref, piece_queue, piece_tx, writer, block_rx).await
         });
@@ -161,7 +159,7 @@ impl PeerSession {
         peer_state: Arc<Mutex<PeerState>>,
         piece_queue: Arc<Mutex<VecDeque<PieceRequest>>>,
         piece_tx: Sender<PieceResult>,
-        writer: Arc<Mutex<OwnedWriteHalf>>,
+        mut writer: OwnedWriteHalf,
         mut block_rx: Receiver<BlockResponse>,
     ) -> Result<(), anyhow::Error> {
         let mut piece_work: Option<PieceWork> = None;
@@ -243,7 +241,6 @@ impl PeerSession {
                         })
                         .collect();
 
-                    let mut writer = writer.lock().await;
                     let resp = PeerSession::send_messages(&mut writer, &next_blocks).await;
 
                     if let Err(e) = resp {
@@ -263,14 +260,11 @@ impl PeerSession {
     /// Listen to incoming data coming from the Peer, change peer state or send data elsewhere to be handled as needed.
     async fn peer_listener(
         peer_state: Arc<Mutex<PeerState>>,
-        reader: Arc<Mutex<OwnedReadHalf>>,
+        mut reader: OwnedReadHalf,
         block_tx: Sender<BlockResponse>,
     ) -> Result<(), anyhow::Error> {
         loop {
-            let msg = {
-                let mut reader = reader.lock().await;
-                PeerSession::read_message(&mut reader).await?
-            };
+            let msg = PeerSession::read_message(&mut reader).await?;
             {
                 let mut state = peer_state.lock().await;
                 match msg {
