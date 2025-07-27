@@ -38,6 +38,20 @@ impl MetaInfo {
         return &self.info;
     }
 
+    pub fn piece_length(&self) -> u64 {
+        match &self.info {
+            InfoEnum::MultiFile(info_multi_file) => info_multi_file.piece_length,
+            InfoEnum::SingleFile(info_single_file) => info_single_file.piece_length,
+        }
+    }
+
+    pub fn num_pieces(&self) -> u32 {
+        match &self.info {
+            InfoEnum::MultiFile(info_multi_file) => info_multi_file.pieces.len() as u32 / 20,
+            InfoEnum::SingleFile(info_single_file) => info_single_file.pieces.len() as u32 / 20,
+        }
+    }
+
     pub fn get_tracker_urls(&self) -> &str {
         return &self.announce;
     }

@@ -99,7 +99,8 @@ impl TorrentDetails {
         f.render_stateful_widget(peer_scrollbar, area, &mut scroll_state);
     }
 
-    pub fn render_files(&mut self, f: &mut Frame, area: Rect, files: &FileEntry, active: bool) {
+    // TODO: Handle active vs inactive folders for folding.
+    pub fn render_files(&mut self, f: &mut Frame, area: Rect, files: &FileEntry, _active: bool) {
         let mut flat = Vec::new();
         flatten_all(files, 0, &mut flat);
 

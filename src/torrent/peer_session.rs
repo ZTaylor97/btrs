@@ -12,25 +12,28 @@ use tokio::{
         Mutex,
         mpsc::{Receiver, Sender, channel},
     },
+    try_join,
 };
 
 mod message;
 mod work;
 
 use message::MessageType;
-use work::{BlockInfo, BlockResponse, BlockStatus, PieceWork};
+use work::{BlockResponse, BlockStatus, PieceWork};
 
-use crate::torrent::piece_manager::{PieceError, PieceRequest, PieceResponse};
+use crate::torrent::piece_manager::{PieceError, PieceRequest, PieceResult};
 
 const PSTR: &[u8; 19] = b"BitTorrent protocol";
 
+/// Defines a connection to a Peer found from a tracker.
+/// Manages reading and writing to the peer to fetch and serve pieces.
 pub struct PeerSession {
     peer_id: [u8; 20],
     info_hash: [u8; 20],
-    url: String,
     peer_state: Arc<Mutex<PeerState>>,
 }
 
+/// Encapsulates the mutable state of a given Peer.
 #[derive(Clone, Debug)]
 pub struct PeerState {
     pub is_choked: bool,
@@ -45,18 +48,16 @@ impl PeerState {
         let bit_offset = 7 - (piece_index % 8); // assume Big Endian bytes
         let byte_offset = piece_index / 8;
 
-        let byte = self.bitfield[byte_offset];
-
-        byte & (1 << bit_offset) != 0
+        if let Some(byte) = self.bitfield.get(byte_offset) {
+            byte & (1 << bit_offset) != 0
+        } else {
+            false
+        }
     }
 }
 
 impl PeerSession {
-    pub async fn new(
-        url: &str,
-        peer_id: [u8; 20],
-        info_hash: [u8; 20],
-    ) -> Result<PeerSession, anyhow::Error> {
+    pub async fn new(peer_id: [u8; 20], info_hash: [u8; 20]) -> PeerSession {
         let peer_state = PeerState {
             is_choked: true,
             is_choking: true,
@@ -65,14 +66,14 @@ impl PeerSession {
             bitfield: vec![],
         };
 
-        Ok(PeerSession {
+        PeerSession {
             peer_id,
             info_hash,
-            url: String::from(url),
             peer_state: Arc::new(Mutex::new(peer_state)),
-        })
+        }
     }
 
+    // TODO: Refactor somewhere else
     pub async fn send_handshake(
         writer: &mut OwnedWriteHalf,
         info_hash: &[u8; 20],
@@ -91,6 +92,7 @@ impl PeerSession {
         Ok(())
     }
 
+    // TODO: Refactor somewhere else
     pub async fn read_handshake(reader: &mut OwnedReadHalf) -> Result<[u8; 68], anyhow::Error> {
         let mut response_bytes = [0u8; 68];
         reader.readable().await?;
@@ -99,15 +101,17 @@ impl PeerSession {
         Ok(response_bytes)
     }
 
+    // TODO: I feel like these tasks need rethinking in terms of module ownership, reusability for incoming TcpSessions not just ones that I initiate.
+    /// Initalize peer connection, start the peer session requester and listener async tasks and plumb them with the PieceManager.
     pub async fn start(
         &mut self,
+        tcp_stream: TcpStream,
         piece_request_rx: Arc<Mutex<VecDeque<PieceRequest>>>,
-        piece_request_tx: Sender<PieceResponse>,
+        piece_request_tx: Sender<PieceResult>,
     ) -> Result<(), anyhow::Error> {
         let (block_tx, block_rx) = channel::<BlockResponse>(100);
 
-        let stream = TcpStream::connect(&self.url).await?;
-        let (mut reader, mut writer) = stream.into_split();
+        let (mut reader, mut writer) = tcp_stream.into_split();
 
         PeerSession::send_handshake(&mut writer, &self.info_hash, &self.peer_id).await?;
         let handshake_response = PeerSession::read_handshake(&mut reader).await?;
@@ -123,34 +127,39 @@ impl PeerSession {
         }
 
         // Communicate intention to download from peer synchronously before starting upload/download.
-        PeerSession::send_interested(&mut writer).await?;
-        PeerSession::send_unchoke(&mut writer).await?;
+        PeerSession::send_messages(
+            &mut writer,
+            &[MessageType::Interested, MessageType::Unchoke],
+        )
+        .await?;
 
         // Start receiving messages from the peer.
-        let reader = Arc::new(Mutex::new(reader));
         let state_ref = self.peer_state.clone();
         let reader_handle =
             tokio::spawn(
                 async move { PeerSession::peer_listener(state_ref, reader, block_tx).await },
             );
 
-        // Start sending messages to the peer
+        // Start sending messages to the peer.
         let state_ref = self.peer_state.clone();
         let piece_queue = piece_request_rx.clone();
         let piece_tx = piece_request_tx.clone();
-        let writer = Arc::new(Mutex::new(writer));
         let writer_handle = tokio::spawn(async move {
             PeerSession::peer_requester(state_ref, piece_queue, piece_tx, writer, block_rx).await
         });
 
+        // Bubble up any errors from peer session tasks.
+        let (res1, res2) = try_join!(reader_handle, writer_handle)?;
+        res1.and(res2)?;
         Ok(())
     }
 
+    /// Get work from PieceManager, send requests to the peer, receive blocks from the peer_listener.
     async fn peer_requester(
         peer_state: Arc<Mutex<PeerState>>,
         piece_queue: Arc<Mutex<VecDeque<PieceRequest>>>,
-        piece_tx: Sender<PieceResponse>,
-        writer: Arc<Mutex<OwnedWriteHalf>>,
+        piece_tx: Sender<PieceResult>,
+        mut writer: OwnedWriteHalf,
         mut block_rx: Receiver<BlockResponse>,
     ) -> Result<(), anyhow::Error> {
         let mut piece_work: Option<PieceWork> = None;
@@ -170,7 +179,7 @@ impl PeerSession {
                     } else {
                         // Inform piece manager that piece is not available on this peer.
                         piece_tx
-                            .send(PieceResponse {
+                            .send(PieceResult {
                                 piece_index: piece_req.piece_index,
                                 result: Err(PieceError::PieceUnavailable),
                             })
@@ -193,6 +202,13 @@ impl PeerSession {
                 while let Ok(block_response) = block_rx.try_recv() {
                     let offset = block_response.begin;
 
+                    if block_response.index != work.index {
+                        eprintln!(
+                            "WARNING: Piece index {} for received block does not match piece being worked on {}.",
+                            block_response.index, work.index
+                        )
+                    }
+
                     let block = work.blocks.iter_mut().find(|block| {
                         block.offset == offset && block.status == BlockStatus::InProgress
                     });
@@ -208,26 +224,27 @@ impl PeerSession {
                 }
 
                 // Only send requests if not choked.
-
                 if !state.is_choked {
                     // Get next 5 blocks (if there are 5 to get) and make requests to peer
-                    let next_blocks: Vec<&mut BlockInfo> = work
+                    let next_blocks: Vec<MessageType> = work
                         .blocks
                         .iter_mut()
                         .filter(|block| block.status == BlockStatus::Empty)
                         .take(max_in_flight)
                         .map(|block| {
                             block.status = BlockStatus::InProgress;
-                            block
+                            MessageType::Request {
+                                index: work.index,
+                                begin: block.offset,
+                                length: block.length,
+                            }
                         })
                         .collect();
 
-                    let mut writer = writer.lock().await;
-                    let resp =
-                        PeerSession::send_request(&mut writer, work.index, &next_blocks).await;
+                    let resp = PeerSession::send_messages(&mut writer, &next_blocks).await;
 
                     if let Err(e) = resp {
-                        eprintln!("{e}");
+                        eprintln!("ERROR: Failed to send request to Peer: {e}");
                     }
                 }
 
@@ -240,16 +257,14 @@ impl PeerSession {
         }
     }
 
+    /// Listen to incoming data coming from the Peer, change peer state or send data elsewhere to be handled as needed.
     async fn peer_listener(
         peer_state: Arc<Mutex<PeerState>>,
-        reader: Arc<Mutex<OwnedReadHalf>>,
+        mut reader: OwnedReadHalf,
         block_tx: Sender<BlockResponse>,
     ) -> Result<(), anyhow::Error> {
         loop {
-            let msg = {
-                let mut reader = reader.lock().await;
-                PeerSession::read_message(&mut reader).await.unwrap()
-            };
+            let msg = PeerSession::read_message(&mut reader).await?;
             {
                 let mut state = peer_state.lock().await;
                 match msg {
@@ -260,22 +275,23 @@ impl PeerSession {
                     MessageType::Have(piece_id) => println!("Peer has {piece_id}"),
                     MessageType::Bitfield(items) => state.bitfield = items,
                     MessageType::Request {
-                        index,
-                        begin,
-                        length,
+                        index: _, // TODO: implement
+                        begin: _,
+                        length: _,
                     } => println!("Sorry buddy, but no"),
                     MessageType::Piece {
                         index,
                         begin,
                         block,
                     } => {
-                        // TODO: Handle errors correctly
                         // send to block manager task
-                        block_tx.try_send(BlockResponse {
+                        if let Err(e) = block_tx.try_send(BlockResponse {
                             index,
                             begin,
                             block,
-                        })?;
+                        }) {
+                            eprintln!("WARNING: Failed to send block across channel: {e}")
+                        }
                     }
                     MessageType::Cancel {
                         index,
@@ -296,60 +312,37 @@ impl PeerSession {
     pub async fn read_message(reader: &mut OwnedReadHalf) -> Result<MessageType, anyhow::Error> {
         reader.readable().await?;
 
-        let mut len_buf = [0u8; 4];
+        let mut len_buf = [0u8; size_of::<u32>()];
         reader.read_exact(&mut len_buf).await?;
         let msg_len = u32::from_be_bytes(len_buf);
 
-        let total_len = 4 + msg_len as usize;
+        let total_len = size_of::<u32>() + msg_len as usize;
         let mut msg_buf = BytesMut::with_capacity(total_len);
         msg_buf.extend_from_slice(&len_buf);
 
         msg_buf.resize(total_len, 0);
-        reader.read_exact(&mut msg_buf[4..]).await?;
+        reader.read_exact(&mut msg_buf[size_of::<u32>()..]).await?;
 
-        let id = if msg_len > 0 { msg_buf[4] } else { 0 };
-
-        MessageType::from_bytes(&mut msg_buf, id, msg_len)
+        if msg_len > 0 {
+            let id = msg_buf[size_of::<u32>()];
+            MessageType::from_bytes(&mut msg_buf, id, msg_len)
+        } else {
+            Ok(MessageType::KeepAlive)
+        }
     }
 
-    pub async fn send_interested(writer: &mut OwnedWriteHalf) -> Result<(), anyhow::Error> {
-        let interested_bytes = MessageType::Interested.to_bytes();
-
-        writer.writable().await?;
-        writer.write_all(&interested_bytes).await?;
-
-        Ok(())
-    }
-    pub async fn send_unchoke(writer: &mut OwnedWriteHalf) -> Result<(), anyhow::Error> {
-        let interested_bytes = MessageType::Unchoke.to_bytes();
-
-        writer.writable().await?;
-        writer.write_all(&interested_bytes).await?;
-
-        Ok(())
-    }
-
-    pub async fn send_request(
+    /// Send one or more messages to a peer.
+    pub async fn send_messages(
         writer: &mut OwnedWriteHalf,
-        piece_index: u32,
-        blocks: &[&mut BlockInfo],
+        messages: &[MessageType],
     ) -> Result<(), anyhow::Error> {
-        let bytes: Vec<u8> = blocks
+        let bytes: Vec<u8> = messages
             .iter()
-            .flat_map(|block| {
-                MessageType::Request {
-                    index: piece_index,
-                    begin: block.offset,
-                    length: block.length,
-                }
-                .to_bytes()
-            })
+            .flat_map(|message| message.to_bytes())
             .collect();
 
         writer.writable().await?;
-
         writer.write_all(&bytes).await?;
-
         Ok(())
     }
 }
@@ -376,7 +369,7 @@ mod peer_session_tests {
 
             // Read incoming handshake (should be 68 bytes)
             let mut handshake = [0u8; 68];
-            let count = socket.read(&mut handshake).await.unwrap();
+            socket.read(&mut handshake).await.unwrap();
 
             // Write a valid BitTorrent handshake request
             let mut request = Vec::new();
@@ -396,12 +389,11 @@ mod peer_session_tests {
 
         start_mock_peer_server(port).await;
 
-        let peer_session =
-            PeerSession::new(&format!("127.0.0.1:{port}"), MOCK_CLIENT_ID, MOCK_INFO_HASH)
-                .await
-                .unwrap();
+        let peer_session = PeerSession::new(MOCK_CLIENT_ID, MOCK_INFO_HASH).await;
 
-        let stream = TcpStream::connect(&peer_session.url).await.unwrap();
+        let stream = TcpStream::connect(&format!("127.0.0.1:{port}"))
+            .await
+            .unwrap();
         let (mut reader, mut writer) = stream.into_split();
 
         PeerSession::send_handshake(&mut writer, &peer_session.info_hash, &peer_session.peer_id)
@@ -425,16 +417,17 @@ mod peer_session_tests {
         let port = 6137;
 
         let piece_request_rx = Arc::new(Mutex::new(VecDeque::new()));
-        let (piece_request_tx, mut piece_requester_rx) = channel::<PieceResponse>(100);
+        let (piece_request_tx, mut piece_requester_rx) = channel::<PieceResult>(100);
 
         // Connect to another client hosting the torrent locally for testing.
-        let mut peer_session =
-            PeerSession::new(&format!("127.0.0.1:{port}"), MOCK_CLIENT_ID, info_hash)
-                .await
-                .unwrap();
+        let mut peer_session = PeerSession::new(MOCK_CLIENT_ID, info_hash).await;
+
+        let tcp_stream = TcpStream::connect(&format!("127.0.0.1:{port}"))
+            .await
+            .unwrap();
 
         peer_session
-            .start(piece_request_rx.clone(), piece_request_tx)
+            .start(tcp_stream, piece_request_rx.clone(), piece_request_tx)
             .await
             .unwrap();
 

@@ -3,7 +3,7 @@
 use serde::{Deserialize, Deserializer, de};
 use serde_bencode::value::Value;
 use serde_bytes::ByteBuf;
-use serde_derive::{Deserialize, Serialize};
+use serde_derive::Serialize;
 
 /// InfoMultiFile format contains the files key.
 /// Present when torrent consists of multiple files.
