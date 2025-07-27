@@ -7,11 +7,12 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Deserializer};
 use serde_bytes::ByteBuf;
-use serde_derive::{Deserialize, Serialize};
+use serde_derive::Serialize;
 
 use serde::de;
 use serde::de::Visitor;
 
+use crate::config;
 use crate::torrent::Peer;
 use crate::torrent::metainfo::MetaInfo;
 
@@ -33,13 +34,15 @@ pub struct TrackerSession {
 }
 
 impl TrackerSession {
-    pub fn new(metainfo: &MetaInfo, info_hash: &str, peer_id: &str) -> Self {
+    pub fn new(metainfo: &MetaInfo, info_hash: &str) -> Self {
         let client = reqwest::Client::new();
+
+        let peer_id = config::get_config().peer_id.clone();
 
         Self {
             started: false,
             info_hash: String::from(info_hash),
-            peer_id: String::from(peer_id),
+            peer_id: peer_id,
             url: metainfo.announce.clone(),
             interval: Duration::ZERO,
             min_interval: None,
@@ -82,7 +85,9 @@ impl TrackerSession {
     }
 
     pub fn create_request(&self) -> TrackerRequest {
-        let mut request = TrackerRequest::new(&self.info_hash, &self.peer_id);
+        let port = config::get_config().port;
+
+        let mut request = TrackerRequest::new(&self.info_hash, &self.peer_id, port as u64);
         request.event = Some(TrackerEvent::Started);
         request.uploaded = self.uploaded;
         request.downloaded = self.downloaded;
@@ -113,11 +118,11 @@ pub struct TrackerRequest {
 
 impl TrackerRequest {
     // TODO: TrackerSession to manage these fields
-    pub fn new(info_hash: &str, peer_id: &str) -> Self {
+    pub fn new(info_hash: &str, peer_id: &str, port: u64) -> Self {
         Self {
             info_hash: String::from(info_hash),
             peer_id: String::from(peer_id),
-            port: 6882,
+            port,
             uploaded: 0,
             downloaded: 0,
             left: 0,
@@ -227,6 +232,7 @@ mod tracker_tests {
         let request = TrackerRequest::new(
             "%DA%BFr%01%9D%EFM0%AF%00%F4%BFM%DF%8Ais%0C%02%B4",
             "-RS0001-kONXltkhXIr5",
+            6882,
         );
 
         let expected_result = "peer_id=-RS0001-kONXltkhXIr5&port=6882&uploaded=0&downloaded=0&left=0&numwant=50&event=started&info_hash=%DA%BFr%01%9D%EFM0%AF%00%F4%BFM%DF%8Ais%0C%02%B4";

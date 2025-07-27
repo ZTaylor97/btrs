@@ -284,14 +284,14 @@ impl PeerSession {
                         begin,
                         block,
                     } => {
-                        // TODO: Handle errors correctly, this failing should not return from the task.
-
                         // send to block manager task
-                        block_tx.try_send(BlockResponse {
+                        if let Err(e) = block_tx.try_send(BlockResponse {
                             index,
                             begin,
                             block,
-                        })?;
+                        }) {
+                            eprintln!("WARNING: Failed to send block across channel: {e}")
+                        }
                     }
                     MessageType::Cancel {
                         index,

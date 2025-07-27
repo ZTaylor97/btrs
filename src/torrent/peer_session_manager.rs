@@ -10,11 +10,14 @@ use tokio::{
     task::JoinHandle,
 };
 
-use crate::torrent::{
-    Peer,
-    peer_session::PeerSession,
-    piece_manager::{PieceRequest, PieceResult},
-    tracker::TrackerSession,
+use crate::{
+    config,
+    torrent::{
+        Peer,
+        peer_session::PeerSession,
+        piece_manager::{PieceRequest, PieceResult},
+        tracker::TrackerSession,
+    },
 };
 
 pub struct PeerSessionManager {
@@ -28,8 +31,10 @@ pub struct PeerSessionManager {
 impl PeerSessionManager {
     pub async fn manage_peer_sessions(&mut self) -> ! {
         // TODO: Move to configuration
-        let max_peers = 10;
-        let client_id = { self.tracker_lock.lock().await.peer_id.clone() };
+
+        let cfg = config::get_config().clone();
+        let max_peers = cfg.max_peers;
+        let client_id = cfg.peer_id.clone();
         let client_id_raw = client_id
             .as_bytes()
             .try_into()
@@ -57,7 +62,7 @@ impl PeerSessionManager {
                             PeerSession::new(client_id_raw, self.info_hash.clone()).await;
 
                         // TODO: Find better way to avoid connecting to self.
-                        if peer.port == 6882 {
+                        if peer.port == cfg.port as u64 {
                             continue;
                         }
 

@@ -69,11 +69,11 @@ impl From<PeersEnum> for Vec<Peer> {
 
 impl Torrent {
     /// Adds a torrent to the client from bytes loaded from a .torrent file.
-    pub fn load(bytes: &[u8], peer_id: &str) -> Result<Self, Error> {
+    pub fn load(bytes: &[u8]) -> Result<Self, Error> {
         let metainfo = MetaInfo::from_bytes(&bytes)?;
         let info_hash = Self::calculate_info_hash(&bytes)?;
         let tracker_session =
-            TrackerSession::new(&metainfo, &encode_binary(&info_hash).into_owned(), peer_id);
+            TrackerSession::new(&metainfo, &encode_binary(&info_hash).into_owned());
 
         Ok(Self {
             metainfo,

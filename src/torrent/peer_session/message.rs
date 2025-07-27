@@ -43,7 +43,7 @@ pub enum MessageType {
 impl MessageType {
     /// Extract a peer protocol message from the bytes read from a peer.
     pub fn from_bytes(bytes: &mut BytesMut, id: u8, len: u32) -> Result<Self, anyhow::Error> {
-        if bytes.len() < 4 {
+        if bytes.len() < size_of::<u32>() {
             bail!("Message {bytes:?} invalid");
         }
 
