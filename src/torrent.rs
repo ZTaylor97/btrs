@@ -147,11 +147,20 @@ impl Torrent {
         let (piece_result_sender, piece_result_receiver) = channel::<PieceResult>(100);
 
         let piece_manager_work_queue = piece_work_queue.clone();
+
+        let piece_length = self.metainfo.piece_length();
+        let num_pieces = self.metainfo.num_pieces();
+
         // Start piece manager
         tokio::spawn(async move {
-            PieceManager::new(piece_manager_work_queue, piece_result_receiver)
-                .run()
-                .await
+            PieceManager::new(
+                piece_manager_work_queue,
+                piece_result_receiver,
+                piece_length,
+                num_pieces,
+            )
+            .run()
+            .await
         });
 
         let mut peer_session_manager = PeerSessionManager {

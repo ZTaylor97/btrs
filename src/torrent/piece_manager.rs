@@ -5,29 +5,32 @@ use tokio::sync::{Mutex, mpsc::Receiver};
 pub struct PieceManager {
     work_queue: Arc<Mutex<VecDeque<PieceRequest>>>,
     results: Receiver<PieceResult>,
+    piece_length: u64,
+    num_pieces: u32,
 }
 
 impl PieceManager {
     pub fn new(
         work_queue: Arc<Mutex<VecDeque<PieceRequest>>>,
         results: Receiver<PieceResult>,
+        piece_length: u64,
+        num_pieces: u32,
     ) -> Self {
         Self {
             work_queue,
             results,
+            piece_length,
+            num_pieces,
         }
     }
 
     pub async fn run(&mut self) {
-        let num_pieces: u32 = 2021;
-        let piece_length: u32 = 2048 * 1024;
-
         {
             let mut queue = self.work_queue.lock().await;
-            queue.reserve(num_pieces as usize);
-            queue.extend((0..num_pieces).map(|i| PieceRequest {
+            queue.reserve(self.num_pieces as usize);
+            queue.extend((0..self.num_pieces).map(|i| PieceRequest {
                 piece_index: i,
-                length_bytes: piece_length as usize,
+                length_bytes: self.piece_length as usize,
             }));
         }
 
@@ -41,7 +44,7 @@ impl PieceManager {
 
                 queue.push_front(PieceRequest {
                     piece_index: result.piece_index,
-                    length_bytes: piece_length as usize,
+                    length_bytes: self.piece_length as usize,
                 });
             }
         }
